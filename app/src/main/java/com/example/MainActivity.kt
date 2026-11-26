@@ -1,0 +1,202 @@
+package com.example
+
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.os.Build
+import android.os.Bundle
+import android.view.WindowManager
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import com.example.data.fuse.FuseCodeCodec
+import com.example.ui.screens.MainShell
+import com.example.ui.screens.auth.LoginScreen
+import com.example.ui.screens.auth.SignupScreen
+import com.example.ui.screens.auth.WelcomeScreen
+import com.example.ui.theme.AlaktraTheme
+
+enum class AuthDestination {
+    WELCOME, LOGIN, SIGNUP, MAIN
+}
+
+class MainActivity : ComponentActivity() {
+    private var pendingFuseCodeState by mutableStateOf<String?>(null)
+
+    private fun updateSystemBarsForOrientation(isLandscape: Boolean) {
+        val windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
+        if (isLandscape) {
+            windowInsetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            windowInsetsController.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            windowInsetsController.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        updateSystemBarsForOrientation(newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            val isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+            updateSystemBarsForOrientation(isLandscape)
+        }
+    }
+
+    private fun extractFuseCodeFromIntent(intent: Intent?): String? {
+        val dataString = intent?.dataString ?: return null
+        return FuseCodeCodec.extractCode(dataString)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        extractFuseCodeFromIntent(intent)?.let { code ->
+            pendingFuseCodeState = code
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+        }
+
+        val initialLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        updateSystemBarsForOrientation(initialLandscape)
+
+        // Request POST_NOTIFICATIONS permission on Android 13+ for persistent background media controls
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
+            }
+        }
+
+        extractFuseCodeFromIntent(intent)?.let { code ->
+            pendingFuseCodeState = code
+        }
+
+        val app = application as AlreadyApp
+        val repository = app.repository
+        val audioController = app.audioController
+
+        setContent {
+            val configuration = LocalConfiguration.current
+            val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+            LaunchedEffect(isLandscape) {
+                updateSystemBarsForOrientation(isLandscape)
+            }
+
+            LaunchedEffect(Unit) {
+                val notifManager = com.example.data.notifications.AppNotificationManager(this@MainActivity)
+                val currentUserId = repository.authPreferences.getUser()?.id
+                notifManager.registerDeviceTokenWithServer(currentUserId)
+                notifManager.checkForNewNotifications(currentUserId)
+            }
+
+            AlaktraTheme {
+                val initialAuth = remember {
+                    if (repository.authPreferences.isLoggedIn()) {
+                        AuthDestination.MAIN
+                    } else {
+                        AuthDestination.WELCOME
+                    }
+                }
+                var currentDestination by remember { mutableStateOf(initialAuth) }
+
+                when (currentDestination) {
+                    AuthDestination.WELCOME -> {
+                        WelcomeScreen(
+                            onNavigateToLogin = { currentDestination = AuthDestination.LOGIN },
+                            onNavigateToSignup = { currentDestination = AuthDestination.SIGNUP }
+                        )
+                    }
+
+                    AuthDestination.LOGIN -> {
+                        LoginScreen(
+                            repository = repository,
+                            onBack = { currentDestination = AuthDestination.WELCOME },
+                            onLoginSuccess = { currentDestination = AuthDestination.MAIN },
+                            onNavigateToSignup = { currentDestination = AuthDestination.SIGNUP }
+                        )
+                    }
+
+                    AuthDestination.SIGNUP -> {
+                        SignupScreen(
+                            repository = repository,
+                            onBack = { currentDestination = AuthDestination.WELCOME },
+                            onSignupSuccess = { currentDestination = AuthDestination.MAIN },
+                            onNavigateToLogin = { currentDestination = AuthDestination.LOGIN }
+                        )
+                    }
+
+                    AuthDestination.MAIN -> {
+                        MainShell(
+                            repository = repository,
+                            audioController = audioController,
+                            pendingFuseJoinCode = pendingFuseCodeState,
+                            onConsumePendingFuseJoinCode = { pendingFuseCodeState = null },
+                            onLogout = { currentDestination = AuthDestination.WELCOME }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        val audioController = (application as? AlreadyApp)?.audioController
+        if (audioController != null && event?.repeatCount == 0) {
+            when (keyCode) {
+                android.view.KeyEvent.KEYCODE_MEDIA_PLAY -> {
+                    audioController.play()
+                    return true
+                }
+                android.view.KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                    audioController.pause()
+                    return true
+                }
+                android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+                android.view.KeyEvent.KEYCODE_HEADSETHOOK -> {
+                    audioController.handleHeadsetHookClick()
+                    return true
+                }
+                android.view.KeyEvent.KEYCODE_MEDIA_NEXT,
+                android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
+                    audioController.next()
+                    return true
+                }
+                android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS,
+                android.view.KeyEvent.KEYCODE_MEDIA_REWIND -> {
+                    audioController.previous()
+                    return true
+                }
+                android.view.KeyEvent.KEYCODE_MEDIA_STOP -> {
+                    audioController.pause()
+                    return true
+                }
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+}
