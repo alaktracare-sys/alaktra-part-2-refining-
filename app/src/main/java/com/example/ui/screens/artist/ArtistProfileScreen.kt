@@ -67,7 +67,7 @@ fun ArtistProfileScreen(
     var bioExpanded by remember(artistId) { mutableStateOf(false) }
     var selectedSongForMenu by remember { mutableStateOf<Song?>(null) }
 
-    val playbackState by audioController.playbackState.collectAsState()
+    val playbackState by audioController.uiState.collectAsState()
     val downloadProgress by repository.downloadManager.downloadProgress.collectAsState()
 
     fun refreshProfile() {

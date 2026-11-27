@@ -9,7 +9,7 @@ import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheEvictor
@@ -18,6 +18,7 @@ import androidx.media3.datasource.cache.CacheSpan
 import androidx.media3.datasource.cache.CacheWriter
 import androidx.media3.datasource.cache.ContentMetadata
 import androidx.media3.datasource.cache.SimpleCache
+import com.example.data.remote.HttpClients
 import com.example.model.Song
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -144,13 +145,10 @@ object AudioCache {
     private val activePreloads = java.util.concurrent.ConcurrentHashMap.newKeySet<Int>()
 
     private fun createAppHttpDataSourceFactory(
-        connectTimeoutMs: Int = 15000,
-        readTimeoutMs: Int = 20000
-    ): DefaultHttpDataSource.Factory {
-        return DefaultHttpDataSource.Factory()
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(connectTimeoutMs)
-            .setReadTimeoutMs(readTimeoutMs)
+        isPreload: Boolean = false
+    ): OkHttpDataSource.Factory {
+        val okHttpClient = if (isPreload) HttpClients.mediaPreload() else HttpClients.media()
+        return OkHttpDataSource.Factory(okHttpClient)
             .setUserAgent("AlaktraAndroidApp/${com.example.BuildConfig.VERSION_NAME}")
             .setDefaultRequestProperties(
                 mapOf("X-App-Secret" to com.example.BuildConfig.API_SECRET)
@@ -293,10 +291,7 @@ object AudioCache {
         val appContext = context.applicationContext
         val cache = getSimpleCache(appContext)
 
-        val httpDataSourceFactory = createAppHttpDataSourceFactory(
-            connectTimeoutMs = 15000,
-            readTimeoutMs = 20000
-        )
+        val httpDataSourceFactory = createAppHttpDataSourceFactory(isPreload = false)
 
         val cacheDataSourceFactory = CacheDataSource.Factory()
             .setCache(cache)
@@ -442,10 +437,7 @@ object AudioCache {
                     .setPosition(0)
                     .build()
 
-                val httpDataSource = createAppHttpDataSourceFactory(
-                    connectTimeoutMs = 8000,
-                    readTimeoutMs = 15000
-                ).createDataSource()
+                val httpDataSource = createAppHttpDataSourceFactory(isPreload = true).createDataSource()
 
                 val cacheDataSource = CacheDataSource(
                     cache,

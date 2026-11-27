@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -17,6 +18,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -83,57 +87,136 @@ private fun saveRecentSearchesToPrefs(context: Context, list: List<String>) {
 
 enum class SearchFilter { ALL, ARTISTS, DOWNLOADED, FAVORITES }
 
+@Stable
+class SearchTabState(
+    initialQuery: String = "",
+    initialFilter: SearchFilter = SearchFilter.ALL,
+    initialResults: List<Song> = emptyList(),
+    initialArtists: List<ArtistProfile> = emptyList(),
+    val artistsListState: LazyListState = LazyListState(),
+    val browseListState: LazyListState = LazyListState(),
+    val resultsListState: LazyListState = LazyListState()
+) {
+    var query by mutableStateOf(initialQuery)
+    var selectedFilter by mutableStateOf(initialFilter)
+    var results by mutableStateOf(initialResults)
+    var matchingArtists by mutableStateOf(initialArtists)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(
     repository: MusicRepository,
     audioController: AudioController,
+    tabState: SearchTabState = remember {
+        SearchTabState(
+            initialResults = repository.peekCachedSongs(),
+            initialArtists = repository.peekCachedArtists()
+        )
+    },
     onNavigateToPlaylistSelect: (Song) -> Unit,
     onOpenArtist: (Int, String) -> Unit = { _, _ -> },
     onViewSongArtist: (Song) -> Unit = {}
 ) {
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
-    var query by remember { mutableStateOf("") }
-    var results by remember { mutableStateOf(repository.peekCachedSongs()) }
-    var matchingArtists by remember { mutableStateOf(repository.peekCachedArtists()) }
+    var query by remember(tabState) { mutableStateOf(tabState.query) }
+    var results by remember(tabState) {
+        val seed = if (tabState.results.isNotEmpty() || tabState.query.isNotBlank()) {
+            tabState.results
+        } else {
+            repository.peekCachedSongs().also { tabState.results = it }
+        }
+        mutableStateOf(seed)
+    }
+    var matchingArtists by remember(tabState) {
+        val seed = if (tabState.matchingArtists.isNotEmpty() || tabState.query.isNotBlank()) {
+            tabState.matchingArtists
+        } else {
+            repository.peekCachedArtists().also { tabState.matchingArtists = it }
+        }
+        mutableStateOf(seed)
+    }
     var isInitialReady by remember { mutableStateOf(results.isNotEmpty() && matchingArtists.isNotEmpty()) }
     var isSearching by remember { mutableStateOf(false) }
-    var selectedFilter by remember { mutableStateOf(SearchFilter.ALL) }
+    var isRefreshing by remember { mutableStateOf(false) }
+    var selectedFilter by remember(tabState) { mutableStateOf(tabState.selectedFilter) }
     var recentSearches by remember { mutableStateOf(loadRecentSearches(context)) }
     var selectedSongForMenu by remember { mutableStateOf<Song?>(null) }
     val scope = rememberCoroutineScope()
     var searchJob by remember { mutableStateOf<Job?>(null) }
 
-    val playbackState by audioController.playbackState.collectAsState()
+    val playbackState by audioController.uiState.collectAsState()
     val downloadProgress by repository.downloadManager.downloadProgress.collectAsState()
+
+    fun updateQuery(next: String) {
+        query = next
+        tabState.query = next
+    }
+
+    fun updateSelectedFilter(next: SearchFilter) {
+        selectedFilter = next
+        tabState.selectedFilter = next
+    }
+
+    fun updateResults(next: List<Song>) {
+        results = next
+        tabState.results = next
+    }
+
+    fun updateMatchingArtists(next: List<ArtistProfile>) {
+        matchingArtists = next
+        tabState.matchingArtists = next
+    }
+
+    suspend fun syncSearchFromServer(force: Boolean) {
+        val trimmed = query.trim()
+        if (!force && (trimmed.isNotEmpty() || !repository.authPreferences.isSyncStale("search_tab", 35_000L))) {
+            return
+        }
+        val syncAnchor = repository.lastOnlineSyncSucceededAtMs
+        coroutineScope {
+            val freshSongsDeferred = async {
+                repository.getSongs(query = trimmed.ifBlank { null }, forceRefresh = true)
+            }
+            val freshArtistsDeferred = async {
+                repository.getArtists(query = trimmed, forceRefresh = true)
+            }
+            val freshSongs = freshSongsDeferred.await()
+            val freshArtists = freshArtistsDeferred.await()
+            if (trimmed == query.trim()) {
+                if (freshSongs.isNotEmpty() || trimmed.isNotEmpty()) updateResults(freshSongs)
+                if (freshArtists.isNotEmpty() || trimmed.isNotEmpty()) updateMatchingArtists(freshArtists)
+            }
+            if (trimmed.isEmpty() && repository.lastOnlineSyncSucceededAtMs > syncAnchor) {
+                repository.authPreferences.markSynced("search_tab")
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (!isInitialReady) {
             coroutineScope {
+                val activeQuery = query.trim()
                 val songsDeferred = async {
-                    repository.getCachedSongs().ifEmpty { repository.getSongs(forceRefresh = false) }
+                    if (activeQuery.isEmpty()) {
+                        repository.getCachedSongs().ifEmpty { repository.getSongs(forceRefresh = false) }
+                    } else {
+                        repository.getSongs(query = activeQuery, forceRefresh = false)
+                    }
                 }
                 val artistsDeferred = async {
-                    repository.getArtists(forceRefresh = false)
+                    repository.getArtists(query = activeQuery, forceRefresh = false)
                 }
                 val initialSongs = songsDeferred.await()
                 val initialArtists = artistsDeferred.await()
-                results = initialSongs
-                matchingArtists = initialArtists
+                updateResults(initialSongs)
+                updateMatchingArtists(initialArtists)
                 isInitialReady = true
             }
         }
 
-        coroutineScope {
-            val freshSongsDeferred = async { repository.getSongs(forceRefresh = true) }
-            val freshArtistsDeferred = async { repository.getArtists(forceRefresh = true) }
-            val freshSongs = freshSongsDeferred.await()
-            val freshArtists = freshArtistsDeferred.await()
-            if (query.isBlank()) {
-                if (freshSongs.isNotEmpty()) results = freshSongs
-                if (freshArtists.isNotEmpty()) matchingArtists = freshArtists
-            }
-        }
+        syncSearchFromServer(force = false)
     }
 
     fun addRecentSearch(term: String) {
@@ -162,8 +245,8 @@ fun SearchScreen(
             val cachedSongs = repository.peekCachedSongs()
             val cachedArtists = repository.peekCachedArtists()
             if (cachedSongs.isNotEmpty() && cachedArtists.isNotEmpty()) {
-                results = cachedSongs
-                matchingArtists = cachedArtists
+                updateResults(cachedSongs)
+                updateMatchingArtists(cachedArtists)
                 isSearching = false
                 return
             }
@@ -176,8 +259,8 @@ fun SearchScreen(
                 val artistsDeferred = async { repository.getArtists(query = q.trim()) }
                 val nextSongs = songsDeferred.await()
                 val nextArtists = artistsDeferred.await()
-                results = nextSongs
-                matchingArtists = nextArtists
+                updateResults(nextSongs)
+                updateMatchingArtists(nextArtists)
                 isSearching = false
             }
         }
@@ -191,20 +274,47 @@ fun SearchScreen(
             SearchFilter.FAVORITES -> results.filter { it.isLiked }
         }
     }
+    val pullRefreshState = rememberPullToRefreshState()
 
     Scaffold(
         containerColor = AlaktraBackground,
         contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { _ ->
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.TopCenter
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                if (!isRefreshing) {
+                    scope.launch {
+                        isRefreshing = true
+                        try {
+                            syncSearchFromServer(force = true)
+                        } finally {
+                            isRefreshing = false
+                        }
+                    }
+                }
+            },
+            state = pullRefreshState,
+            indicator = {
+                PullToRefreshDefaults.Indicator(
+                    state = pullRefreshState,
+                    isRefreshing = isRefreshing,
+                    containerColor = AlaktraCard,
+                    color = AlaktraMint,
+                    modifier = Modifier.align(Alignment.TopCenter)
+                )
+            },
+            modifier = Modifier.fillMaxSize()
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .widthIn(max = 840.dp)
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.TopCenter
             ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .widthIn(max = 840.dp)
+                ) {
                 Text(
                     text = "Search",
                     style = MaterialTheme.typography.headlineMedium.copy(
@@ -218,7 +328,7 @@ fun SearchScreen(
                 OutlinedTextField(
                     value = query,
                     onValueChange = {
-                        query = it
+                        updateQuery(it)
                         triggerSearch(it)
                     },
                     placeholder = {
@@ -238,7 +348,7 @@ fun SearchScreen(
                     trailingIcon = {
                         if (query.isNotEmpty()) {
                             IconButton(onClick = {
-                                query = ""
+                                updateQuery("")
                                 triggerSearch("")
                             }) {
                                 Icon(
@@ -284,7 +394,7 @@ fun SearchScreen(
                         SearchFilterChipItem(
                             label = "All Tracks",
                             selected = selectedFilter == SearchFilter.ALL,
-                            onClick = { selectedFilter = SearchFilter.ALL },
+                            onClick = { updateSelectedFilter(SearchFilter.ALL) },
                             testTag = "search_filter_all"
                         )
                     }
@@ -292,7 +402,7 @@ fun SearchScreen(
                         SearchFilterChipItem(
                             label = stringResource(R.string.search_filter_artists),
                             selected = selectedFilter == SearchFilter.ARTISTS,
-                            onClick = { selectedFilter = SearchFilter.ARTISTS },
+                            onClick = { updateSelectedFilter(SearchFilter.ARTISTS) },
                             testTag = "search_filter_artists"
                         )
                     }
@@ -300,7 +410,7 @@ fun SearchScreen(
                         SearchFilterChipItem(
                             label = "Downloaded",
                             selected = selectedFilter == SearchFilter.DOWNLOADED,
-                            onClick = { selectedFilter = SearchFilter.DOWNLOADED },
+                            onClick = { updateSelectedFilter(SearchFilter.DOWNLOADED) },
                             testTag = "search_filter_downloaded"
                         )
                     }
@@ -308,7 +418,7 @@ fun SearchScreen(
                         SearchFilterChipItem(
                             label = "Favorites",
                             selected = selectedFilter == SearchFilter.FAVORITES,
-                            onClick = { selectedFilter = SearchFilter.FAVORITES },
+                            onClick = { updateSelectedFilter(SearchFilter.FAVORITES) },
                             testTag = "search_filter_favorites"
                         )
                     }
@@ -330,6 +440,7 @@ fun SearchScreen(
                         )
                     } else {
                         LazyColumn(
+                            state = tabState.artistsListState,
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 2.dp, bottom = 160.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -351,6 +462,7 @@ fun SearchScreen(
                 } else if (query.isEmpty() && selectedFilter == SearchFilter.ALL) {
                     if (recentSearches.isNotEmpty() || matchingArtists.isNotEmpty()) {
                         LazyColumn(
+                            state = tabState.browseListState,
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(bottom = 160.dp)
                         ) {
@@ -368,7 +480,7 @@ fun SearchScreen(
                                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                             color = AlaktraTextPrimary
                                         )
-                                        TextButton(onClick = { selectedFilter = SearchFilter.ARTISTS }) {
+                                        TextButton(onClick = { updateSelectedFilter(SearchFilter.ARTISTS) }) {
                                             Text(
                                                 text = "See all",
                                                 style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
@@ -511,6 +623,7 @@ fun SearchScreen(
                     )
                 } else {
                     LazyColumn(
+                        state = tabState.resultsListState,
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(bottom = 160.dp)
                     ) {
@@ -571,7 +684,7 @@ fun SearchScreen(
                                     scope.launch {
                                         val isLiked = repository.toggleLike(song)
                                         audioController.updateSongLiked(song.id, isLiked)
-                                        results = results.map { if (it.id == song.id) it.copy(isLiked = isLiked) else it }
+                                        updateResults(results.map { if (it.id == song.id) it.copy(isLiked = isLiked) else it })
                                     }
                                 },
                                 onMoreClick = { selectedSongForMenu = song }
@@ -580,6 +693,7 @@ fun SearchScreen(
                     }
                 }
             }
+        }
         }
     }
 
@@ -603,11 +717,11 @@ fun SearchScreen(
                 scope.launch {
                     if (isDownloaded) {
                         repository.downloadManager.removeDownload(song.id)
-                        results = results.map { if (it.id == song.id) it.copy(isDownloaded = false, localPath = null) else it }
+                        updateResults(results.map { if (it.id == song.id) it.copy(isDownloaded = false, localPath = null) else it })
                     } else {
                         repository.downloadManager.downloadSong(song)
                         val path = repository.downloadManager.getLocalPath(song.id)
-                        results = results.map { if (it.id == song.id) it.copy(isDownloaded = true, localPath = path) else it }
+                        updateResults(results.map { if (it.id == song.id) it.copy(isDownloaded = true, localPath = path) else it })
                     }
                 }
             }

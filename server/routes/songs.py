@@ -2,6 +2,7 @@ from fastapi import APIRouter, UploadFile, File, Form, Query, Request, HTTPExcep
 from fastapi.responses import StreamingResponse, Response, JSONResponse
 from typing import Optional, List
 from database import get_db, MUSIC_DIR, COVER_DIR, allot_song_artists, attach_artists_to_song_dicts
+from routes.thumbs import _etag_matches, invalidate_cover_thumbs
 import uuid
 import os
 import hashlib
@@ -170,15 +171,21 @@ def sanitize_and_inject_color_metadata(image_bytes: bytes, ext: str, color_hex: 
 def get_songs(request: Request):
     db = get_db()
     try:
+        meta = db.execute(
+            "SELECT COUNT(*) AS cnt, COALESCE(MAX(id), 0) AS max_id, COALESCE(MAX(updated_at), '') AS max_up FROM songs"
+        ).fetchone()
+        latest_token = (
+            f"{meta['cnt'] if meta else 0}_"
+            f"{meta['max_id'] if meta else 0}_"
+            f"{meta['max_up'] if meta else ''}_"
+            f"{_catalog_artist_sig(db)}"
+        )
+        etag = f'"{hashlib.md5(latest_token.encode()).hexdigest()}"'
+        if _etag_matches(request.headers.get("if-none-match"), etag):
+            return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, max-age=60"})
+
         songs = db.execute("SELECT * FROM songs ORDER BY id DESC").fetchall()
         base_url = get_base_url(request)
-
-        max_song_up = max((str(s["updated_at"] or "") for s in songs), default="")
-        latest_token = f"{len(songs)}_{songs[0]['id'] if songs else 0}_{max_song_up}_{_catalog_artist_sig(db)}"
-        etag = f'"{hashlib.md5(latest_token.encode()).hexdigest()}"'
-        client_etag = request.headers.get("if-none-match")
-        if client_etag and client_etag.strip('"') == etag.strip('"'):
-            return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, max-age=60"})
 
         data = [
             {
@@ -252,7 +259,7 @@ def stream_song(song_id: int, request: Request):
             }
         )
 
-    def iterfile(start: int, end: int, chunk_size: int = 16384):
+    def iterfile(start: int, end: int, chunk_size: int = 65536):
         with open(file_path, "rb") as f:
             f.seek(start)
             remaining = end - start + 1
@@ -494,8 +501,7 @@ def search_songs(
         max_song_up = max((str(s["updated_at"] or "") for s in songs), default="")
         query_sig = f"{clean_q}_{limit}_{offset}_{len(songs)}_{songs[0]['id'] if songs else 0}_{max_song_up}_{_catalog_artist_sig(db)}"
         etag = f'"{hashlib.md5(query_sig.encode()).hexdigest()}"'
-        client_etag = request.headers.get("if-none-match")
-        if client_etag and client_etag.strip('"') == etag.strip('"'):
+        if _etag_matches(request.headers.get("if-none-match"), etag):
             return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, max-age=60"})
 
         data = [
@@ -572,6 +578,7 @@ def allot_existing_song_artists(
                             sanitized_bytes = sanitize_and_inject_color_metadata(raw_bytes, ext, clean_color)
                             with open(cover_abs, "wb") as f:
                                 f.write(sanitized_bytes)
+                            invalidate_cover_thumbs(os.path.basename(cover_rel))
                         except Exception as e:
                             print(f"⚠️ Error updating cover image file on disk: {e}")
 

@@ -16,7 +16,10 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -133,9 +136,14 @@ fun DailyPlaylistCollageCover(
 @Composable
 private fun CollageTileImage(
     url: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    targetBucketPx: Int = 256
 ) {
     val context = LocalContext.current
+    val adaptiveUrl = remember(url, targetBucketPx) { resolveAdaptiveCoverUrl(url, targetBucketPx) }
+    var fallbackToOriginal by remember(url, adaptiveUrl) { mutableStateOf(false) }
+    val effectiveUrl = if (fallbackToOriginal) url else adaptiveUrl
+
     Box(
         modifier = modifier.background(AlaktraCard),
         contentAlignment = Alignment.Center
@@ -147,11 +155,17 @@ private fun CollageTileImage(
             modifier = Modifier.size(18.dp)
         )
         AsyncImage(
-            model = remember(url) {
+            model = remember(effectiveUrl, targetBucketPx, fallbackToOriginal) {
                 ImageRequest.Builder(context)
-                    .data(url)
+                    .data(effectiveUrl)
+                    .size(targetBucketPx, targetBucketPx)
                     .crossfade(true)
                     .build()
+            },
+            onError = if (adaptiveUrl != url && !fallbackToOriginal) {
+                { fallbackToOriginal = true }
+            } else {
+                null
             },
             contentDescription = null,
             contentScale = ContentScale.Crop,

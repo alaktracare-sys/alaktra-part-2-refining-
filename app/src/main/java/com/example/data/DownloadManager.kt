@@ -8,25 +8,20 @@ import coil.request.ImageRequest
 import com.example.data.local.AppDatabase
 import com.example.data.local.DownloadedSongEntity
 import com.example.model.Song
+import com.example.data.remote.HttpClients
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
-import java.util.concurrent.TimeUnit
 
 class DownloadManager(private val context: Context) {
     private val songDao = AppDatabase.getInstance(context).songDao()
-    private val client = OkHttpClient.Builder()
-        .addInterceptor(com.example.data.remote.AppSecurityInterceptor())
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .build()
+    private val client = HttpClients.download()
 
     private val _downloadProgress = MutableStateFlow<Map<Int, Float>>(emptyMap())
     val downloadProgress: StateFlow<Map<Int, Float>> = _downloadProgress.asStateFlow()

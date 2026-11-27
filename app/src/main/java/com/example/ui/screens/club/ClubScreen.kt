@@ -72,7 +72,7 @@ fun ClubScreen(
     var searchQuery by remember { mutableStateOf("") }
     var isLoadingCatalog by remember { mutableStateOf(false) }
 
-    val playbackState by audioController.playbackState.collectAsState()
+    val playbackState by audioController.uiState.collectAsState()
 
     fun loadClubDetails(clubId: Int) {
         scope.launch {

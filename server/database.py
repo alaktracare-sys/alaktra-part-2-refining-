@@ -6,12 +6,14 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "music.db")
 MUSIC_DIR = os.path.join(BASE_DIR, "music")
 COVER_DIR = os.path.join(BASE_DIR, "covers")
+COVER_THUMB_DIR = os.path.join(BASE_DIR, "cover_thumbs")
 PIN_DIR = os.path.join(BASE_DIR, "pins")
 ARTIST_DIR = os.path.join(BASE_DIR, "artist_media")
 AVATAR_DIR = os.path.join(BASE_DIR, "avatars")
 
 os.makedirs(MUSIC_DIR, exist_ok=True)
 os.makedirs(COVER_DIR, exist_ok=True)
+os.makedirs(COVER_THUMB_DIR, exist_ok=True)
 os.makedirs(PIN_DIR, exist_ok=True)
 os.makedirs(ARTIST_DIR, exist_ok=True)
 os.makedirs(AVATAR_DIR, exist_ok=True)
@@ -121,6 +123,9 @@ def _init_db_schema(conn):
             UNIQUE(playlist_id, song_id)
         )
     """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_songs_updated_at ON songs(updated_at)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_playlists_user_order ON playlists(user_id, is_system DESC, id DESC)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_playlist_songs_playlist_order ON playlist_songs(playlist_id, id DESC)")
 
     # Fuse 5-Minute Temporary Invites Table
     cursor.execute("""

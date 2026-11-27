@@ -110,6 +110,7 @@ fun ProfileScreen(
     }
 
     LaunchedEffect(Unit) {
+        audioController.flushLiveSessionForUi()
         repository.getCachedUser()
         repository.refreshUserProfile()
         isCheckingConnection = true

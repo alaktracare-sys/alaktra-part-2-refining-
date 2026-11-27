@@ -398,6 +398,17 @@ class AuthPreferences(context: Context) {
         prefs.edit().putLong("sync_time_$syncKey", timestamp).apply()
     }
 
+    fun isSyncStale(syncKey: String, maxAgeMs: Long = 35_000L): Boolean {
+        val last = getLastSyncTime(syncKey)
+        if (last <= 0L) return true
+        val elapsed = System.currentTimeMillis() - last
+        return elapsed < 0L || elapsed > maxAgeMs
+    }
+
+    fun markSynced(syncKey: String) {
+        setLastSyncTime(syncKey, System.currentTimeMillis())
+    }
+
     fun getCachedCapsuleSnapshot(userId: Int): String? {
         return prefs.getString("capsule_snapshot_v1_$userId", null)
     }

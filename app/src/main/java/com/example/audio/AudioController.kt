@@ -38,8 +38,12 @@ import com.example.model.Song
 import com.example.util.NetworkMonitor
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import java.io.File
 import android.Manifest
 import android.content.pm.PackageManager
@@ -124,6 +128,14 @@ class AudioController private constructor(private val context: Context) {
 
     private val _playbackState = MutableStateFlow(PlaybackState())
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
+    val uiState: StateFlow<PlaybackState> = _playbackState
+        .map { it.copy(currentPositionMs = 0L) }
+        .distinctUntilChanged()
+        .stateIn(scope, SharingStarted.Eagerly, PlaybackState())
+    val positionMs: StateFlow<Long> = _playbackState
+        .map { it.currentPositionMs }
+        .distinctUntilChanged()
+        .stateIn(scope, SharingStarted.Eagerly, 0L)
     val recentPlayedSongIds: List<Int> get() = _playbackState.value.recentPlayedSongIds
 
     private var progressJob: Job? = null
@@ -465,10 +477,10 @@ class AudioController private constructor(private val context: Context) {
 
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
-                DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,
-                DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
-                DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS
+                50_000,
+                50_000,
+                2_000,
+                5_000
             )
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
@@ -625,13 +637,15 @@ class AudioController private constructor(private val context: Context) {
         checkAndRecordIfPlayedThresholdMet()
         val sessionId = currentSessionHistoryId
         val listenedSec = currentSessionListenedSec
-        if (sessionId != null && listenedSec > 0L) {
-            scope.launch(Dispatchers.IO) {
-                try {
-                    com.example.data.local.AppDatabase.getInstance(context)
-                        .updateListeningDuration(sessionId, listenedSec)
-                } catch (_: Exception) {}
-            }
+        scope.launch(Dispatchers.IO) {
+            try {
+                val db = com.example.data.local.AppDatabase.getInstance(context)
+                if (sessionId != null && listenedSec > 0L) {
+                    db.updateListeningDurationAndRefresh(sessionId, listenedSec)
+                } else {
+                    db.refreshHistoryNow()
+                }
+            } catch (_: Exception) {}
         }
         val startedAt = currentCapsuleSessionStartMs
         val msPlayed = currentCapsuleMsPlayed
@@ -680,13 +694,16 @@ class AudioController private constructor(private val context: Context) {
     private fun flushCurrentListeningSession() {
         persistCurrentCapsuleSession(syncToServer = false, finalizeSession = false)
         checkAndRecordIfPlayedThresholdMet()
-        val sessionId = currentSessionHistoryId ?: return
+        val sessionId = currentSessionHistoryId
         val listenedSec = currentSessionListenedSec
-        if (listenedSec <= 0L) return
         scope.launch(Dispatchers.IO) {
             try {
                 val db = com.example.data.local.AppDatabase.getInstance(context)
-                db.updateListeningDuration(sessionId, listenedSec)
+                if (sessionId != null && listenedSec > 0L) {
+                    db.updateListeningDurationAndRefresh(sessionId, listenedSec)
+                } else {
+                    db.refreshHistoryNow()
+                }
             } catch (e: Exception) {
                 Log.w("AudioController", "Failed to flush listening duration", e)
             }
@@ -759,13 +776,18 @@ class AudioController private constructor(private val context: Context) {
                             checkAndRecordIfPlayedThresholdMet()
 
                             val sessionId = currentSessionHistoryId
-                            // Periodically persist updated listened seconds every 5s once counted as played
+                            // Periodically persist updated listened seconds every 5s; emit history UI flow every 15s
                             if (sessionId != null && currentSessionListenedSec > 0L && currentSessionListenedSec % 5L == 0L) {
                                 val sec = currentSessionListenedSec
+                                val emitHistoryUi = (sec % 15L == 0L)
                                 scope.launch(Dispatchers.IO) {
                                     try {
                                         val db = com.example.data.local.AppDatabase.getInstance(context)
-                                        db.updateListeningDuration(sessionId, sec)
+                                        if (emitHistoryUi) {
+                                            db.updateListeningDurationAndRefresh(sessionId, sec)
+                                        } else {
+                                            db.updateListeningDuration(sessionId, sec)
+                                        }
                                     } catch (_: Exception) {}
                                 }
                             }

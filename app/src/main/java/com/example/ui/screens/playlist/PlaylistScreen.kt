@@ -89,7 +89,7 @@ fun PlaylistScreen(
     val fuseUser2Name = fusePlaylistMeta?.fuseUser2Name?.takeIf { it.isNotBlank() } ?: fallbackNames.second
     val fuseMatchScore = (fusePlaylistMeta?.fuseMatchScore ?: 0).let { if (it > 0) it else 84 }
 
-    val playbackState by audioController.playbackState.collectAsState()
+    val playbackState by audioController.uiState.collectAsState()
     val downloadProgress by repository.downloadManager.downloadProgress.collectAsState()
     val liveDownloadedSongs by repository.downloadedSongsFlow.collectAsState(initial = emptyList())
 

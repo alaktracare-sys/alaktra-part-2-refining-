@@ -2,6 +2,7 @@ from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import Response, JSONResponse
 from database import get_db, attach_artists_to_song_dicts, today_utc_str
 from routes.fuse import refresh_fuse_if_needed, format_fuse_songs_payload, cleanup_expired_fuse_invites
+from routes.thumbs import _etag_matches
 import os
 import hashlib
 import random
@@ -379,8 +380,7 @@ def get_daily_playlists(
 
         sig = f"daily_{user_id}_{target_date}_{'_'.join(str(r['id']) + ':' + str(len(songs_by_dp.get(int(r['id']), []))) for r in daily_rows)}"
         etag = f'"{hashlib.md5(sig.encode()).hexdigest()}"'
-        client_etag = request.headers.get("if-none-match")
-        if client_etag and client_etag.strip('"') == etag.strip('"'):
+        if _etag_matches(request.headers.get("if-none-match"), etag):
             return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, max-age=60"})
 
         payload = []
@@ -428,8 +428,7 @@ def get_playlist_songs(playlist_id: int, request: Request):
                 data = format_fuse_songs_payload(db, fuse_row, base_url)
                 pl_sig = f"fuse_{playlist_id}_{fuse_row['last_refreshed_date']}_{len(data)}_{data[0]['id'] if data else 0}"
                 etag = f'"{hashlib.md5(pl_sig.encode()).hexdigest()}"'
-                client_etag = request.headers.get("if-none-match")
-                if client_etag and client_etag.strip('"') == etag.strip('"'):
+                if _etag_matches(request.headers.get("if-none-match"), etag):
                     return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, max-age=30"})
                 return JSONResponse(content=data, headers={"ETag": etag, "Cache-Control": "private, max-age=30"})
 
@@ -448,8 +447,7 @@ def get_playlist_songs(playlist_id: int, request: Request):
         max_song_up = max((str(s["updated_at"] or "") for s in songs), default="")
         pl_sig = f"pl_{playlist_id}_{len(songs)}_{songs[0]['id'] if songs else 0}_{max_song_up}"
         etag = f'"{hashlib.md5(pl_sig.encode()).hexdigest()}"'
-        client_etag = request.headers.get("if-none-match")
-        if client_etag and client_etag.strip('"') == etag.strip('"'):
+        if _etag_matches(request.headers.get("if-none-match"), etag):
             return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, max-age=60"})
 
         data = [
@@ -502,8 +500,7 @@ def get_playlists(user_id: int, request: Request):
         sig_parts = [f"{p['id']}:{p['name']}:{p['computed_song_count']}" for p in playlists]
         user_pl_sig = f"user_{user_id}_{len(playlists)}_{'|'.join(sig_parts)}"
         etag = f'"{hashlib.md5(user_pl_sig.encode()).hexdigest()}"'
-        client_etag = request.headers.get("if-none-match")
-        if client_etag and client_etag.strip('"') == etag.strip('"'):
+        if _etag_matches(request.headers.get("if-none-match"), etag):
             return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, max-age=15"})
 
         data = [

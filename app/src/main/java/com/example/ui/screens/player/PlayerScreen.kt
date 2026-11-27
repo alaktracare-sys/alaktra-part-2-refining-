@@ -1536,8 +1536,8 @@ private fun LiveDurationBar(
     durationMs: Long,
     modifier: Modifier = Modifier
 ) {
-    val liveState by audioController.playbackState.collectAsState()
-    val positionMs = if (liveState.currentSong != null) liveState.currentPositionMs else fallbackPositionMs
+    val livePosMs by audioController.positionMs.collectAsState()
+    val positionMs = if (livePosMs > 0L || durationMs > 0L) livePosMs else fallbackPositionMs
     CustomDurationBar(
         positionMs = positionMs,
         durationMs = durationMs,

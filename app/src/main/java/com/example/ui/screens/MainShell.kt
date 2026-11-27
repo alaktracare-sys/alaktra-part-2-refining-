@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -65,6 +66,7 @@ import com.example.ui.screens.playlist.AddSongToPlaylistScreen
 import com.example.ui.screens.playlist.PlaylistScreen
 import com.example.ui.screens.profile.ProfileScreen
 import com.example.ui.screens.search.SearchScreen
+import com.example.ui.screens.search.SearchTabState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.soundcapsule.SoundCapsuleHost
@@ -122,9 +124,17 @@ fun MainShell(
         }
     }
 
-    val playbackStateHolder = audioController.playbackState.collectAsState()
+    val playbackStateHolder = audioController.uiState.collectAsState()
     val hasCurrentSong by remember {
         derivedStateOf { playbackStateHolder.value.currentSong != null }
+    }
+    val homeListState = rememberLazyListState()
+    val libraryListState = rememberLazyListState()
+    val searchTabState = remember {
+        SearchTabState(
+            initialResults = repository.peekCachedSongs(),
+            initialArtists = repository.peekCachedArtists()
+        )
     }
     val isOnline by remember { com.example.util.NetworkMonitor.observeNetwork(context) }
         .collectAsState(initial = com.example.util.NetworkMonitor.isOnline(context))
@@ -491,6 +501,7 @@ fun MainShell(
                                     HomeScreen(
                                         repository = repository,
                                         audioController = audioController,
+                                        listState = homeListState,
                                         onNavigateToProfile = { currentScreen = Screen.PROFILE },
                                         onNavigateToEqualizer = { currentScreen = Screen.EQUALIZER },
                                         onNavigateToPlaylistSelect = { song ->
@@ -510,6 +521,7 @@ fun MainShell(
                                     SearchScreen(
                                         repository = repository,
                                         audioController = audioController,
+                                        tabState = searchTabState,
                                         onNavigateToPlaylistSelect = { song ->
                                             scope.launch {
                                                 availablePlaylists = loadEditableUserPlaylists()
@@ -524,6 +536,7 @@ fun MainShell(
                                 Screen.LIBRARY -> {
                                     LibraryScreen(
                                         repository = repository,
+                                        listState = libraryListState,
                                         onNavigateToPlaylist = { id, name -> openPlaylist(id, name) },
                                         onNavigateToLikedSongs = { openPlaylist(Playlist.ID_LIKED, "Liked Songs") },
                                         onNavigateToDownloadedSongs = { openPlaylist(Playlist.ID_DOWNLOADED, "Downloaded Songs") },
@@ -735,8 +748,10 @@ fun MainShell(
                 exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(tween(160))
             ) {
                 val miniPlaybackState = playbackStateHolder.value
+                val positionMsState = audioController.positionMs.collectAsState()
                 MiniPlayer(
                     playbackState = miniPlaybackState,
+                    positionMsProvider = { positionMsState.value },
                     onTogglePlay = { audioController.togglePlayPause() },
                     onNext = { audioController.next() },
                     onPrevious = { audioController.previous() },

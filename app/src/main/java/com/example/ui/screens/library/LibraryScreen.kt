@@ -5,12 +5,17 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,6 +41,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun LibraryScreen(
     repository: MusicRepository,
+    listState: LazyListState = rememberLazyListState(),
     onNavigateToPlaylist: (Int, String) -> Unit,
     onNavigateToLikedSongs: () -> Unit,
     onNavigateToDownloadedSongs: () -> Unit,
@@ -43,11 +49,12 @@ fun LibraryScreen(
     onNavigateToClub: (Int?) -> Unit = {},
     onNavigateToSoundCapsule: () -> Unit = {}
 ) {
-    var playlists by remember { mutableStateOf<List<Playlist>>(emptyList()) }
-    var myClubs by remember { mutableStateOf<List<com.example.model.ClubPlaylistSummary>>(emptyList()) }
+    var playlists by remember { mutableStateOf(repository.peekCachedPlaylists()) }
+    var myClubs by remember { mutableStateOf(repository.getCachedMyClubs()) }
     val downloadedSongs by repository.downloadedSongsFlow.collectAsState(initial = emptyList())
-    var likedSongsCount by remember { mutableIntStateOf(0) }
+    var likedSongsCount by remember { mutableIntStateOf(repository.authPreferences.getLikedSongIds().size) }
     var plusMenuExpanded by remember { mutableStateOf(false) }
+    var isRefreshing by remember { mutableStateOf(false) }
 
     // Dialog states
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -62,42 +69,86 @@ fun LibraryScreen(
     var playlistToDelete by remember { mutableStateOf<Playlist?>(null) }
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(Unit) {
-        val cached = repository.getCachedPlaylists()
-        if (cached.isNotEmpty()) {
-            playlists = cached
+    suspend fun syncLibraryFromServer(force: Boolean) {
+        if (!force && !repository.authPreferences.isSyncStale("library_tab", 35_000L)) {
+            return
         }
-        val cachedClubs = repository.getCachedMyClubs()
-        if (cachedClubs.isNotEmpty()) {
-            myClubs = cachedClubs
+        val syncAnchor = repository.lastOnlineSyncSucceededAtMs
+        kotlinx.coroutines.coroutineScope {
+            val freshPlaylistsDeferred = async { repository.getPlaylists(forceRefresh = true) }
+            val freshClubsDeferred = async { repository.getMyClubs() }
+
+            playlists = freshPlaylistsDeferred.await()
+            val clubRes = freshClubsDeferred.await()
+            if (clubRes.isSuccess) {
+                myClubs = clubRes.getOrNull() ?: emptyList()
+            }
+            likedSongsCount = repository.authPreferences.getLikedSongIds().size
+            if (repository.lastOnlineSyncSucceededAtMs > syncAnchor) {
+                repository.authPreferences.markSynced("library_tab")
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (playlists.isEmpty()) {
+            val cached = repository.getCachedPlaylists()
+            if (cached.isNotEmpty()) {
+                playlists = cached
+            }
+        }
+        if (myClubs.isEmpty()) {
+            val cachedClubs = repository.getCachedMyClubs()
+            if (cachedClubs.isNotEmpty()) {
+                myClubs = cachedClubs
+            }
         }
         likedSongsCount = repository.authPreferences.getLikedSongIds().size
 
-        // Fetch fresh playlists and club playlists in parallel
-        val freshPlaylistsDeferred = async { repository.getPlaylists(forceRefresh = true) }
-        val freshClubsDeferred = async { repository.getMyClubs() }
-
-        playlists = freshPlaylistsDeferred.await()
-        val clubRes = freshClubsDeferred.await()
-        if (clubRes.isSuccess) {
-            myClubs = clubRes.getOrNull() ?: emptyList()
-        }
+        syncLibraryFromServer(force = false)
     }
+
+    val pullRefreshState = rememberPullToRefreshState()
 
     Scaffold(
         containerColor = AlaktraBackground,
         contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { _ ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize(),
-            contentAlignment = Alignment.TopCenter
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                if (!isRefreshing) {
+                    scope.launch {
+                        isRefreshing = true
+                        try {
+                            syncLibraryFromServer(force = true)
+                        } finally {
+                            isRefreshing = false
+                        }
+                    }
+                }
+            },
+            state = pullRefreshState,
+            indicator = {
+                PullToRefreshDefaults.Indicator(
+                    state = pullRefreshState,
+                    isRefreshing = isRefreshing,
+                    containerColor = AlaktraCard,
+                    color = AlaktraMint,
+                    modifier = Modifier.align(Alignment.TopCenter)
+                )
+            },
+            modifier = Modifier.fillMaxSize()
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .widthIn(max = 840.dp)
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.TopCenter
             ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .widthIn(max = 840.dp)
+                ) {
             // Header
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -235,6 +286,7 @@ fun LibraryScreen(
             Spacer(modifier = Modifier.height(6.dp))
 
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 150.dp)
             ) {
@@ -561,6 +613,7 @@ fun LibraryScreen(
                     }
                 }
             }
+        }
         }
     }
 

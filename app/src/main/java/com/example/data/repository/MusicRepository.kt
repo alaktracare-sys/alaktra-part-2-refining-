@@ -260,6 +260,14 @@ class MusicRepository(private val context: Context) {
         private set
 
     @Volatile
+    var lastOnlineSyncSucceededAtMs: Long = 0L
+        private set
+
+    private fun markOnlineSyncSucceeded() {
+        lastOnlineSyncSucceededAtMs = System.currentTimeMillis()
+    }
+
+    @Volatile
     private var lastUnreachableAtMs: Long = 0L
 
     @Volatile
@@ -311,28 +319,11 @@ class MusicRepository(private val context: Context) {
         }
 
     private fun buildApiService(baseUrl: String): MusicApiService {
-        val logging = HttpLoggingInterceptor().apply {
-            level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC else HttpLoggingInterceptor.Level.NONE
-        }
-
-        val httpCacheDir = File(context.cacheDir, ApiCacheConfig.HTTP_CACHE_DIR)
-        val httpCache = Cache(httpCacheDir, ApiCacheConfig.HTTP_CACHE_MAX_BYTES)
-
-        val client = OkHttpClient.Builder()
-            .cache(httpCache)
-            .addInterceptor(logging)
-            .addInterceptor(com.example.data.remote.AppSecurityInterceptor())
-            .connectTimeout(4, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(false)
-            .build()
-
         val normalized = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
 
         return Retrofit.Builder()
             .baseUrl(normalized)
-            .client(client)
+            .client(HttpClients.api(context))
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(MusicApiService::class.java)
@@ -570,6 +561,7 @@ class MusicRepository(private val context: Context) {
             val response = api.getProfile(authHeader)
             if (response.isSuccessful && response.body() != null) {
                 markServerReachable()
+                markOnlineSyncSucceeded()
                 val updated = response.body()!!.toDomainUser()
                 persistAuthenticatedUser(updated)
                 return@withContext Result.success(updated)
@@ -845,6 +837,7 @@ class MusicRepository(private val context: Context) {
                 updateReachabilityFromHttpCode(response.code())
                 if (response.code() == 304) {
                     authPreferences.setLastSyncTime("songs")
+                    markOnlineSyncSucceeded()
                     if (localSongs.isNotEmpty()) {
                         return@withContext attachLocalPaths(localSongs)
                     }
@@ -855,6 +848,7 @@ class MusicRepository(private val context: Context) {
                     apiCacheManager.putFeed("home_feed", remoteSongs)
                     songDao.insertCachedSongs(remoteSongs.map { SongEntity.fromSong(it) })
                     authPreferences.setLastSyncTime("songs")
+                    markOnlineSyncSucceeded()
                     return@withContext attachLocalPaths(remoteSongs)
                 }
             } catch (e: Exception) {
@@ -1139,11 +1133,13 @@ class MusicRepository(private val context: Context) {
             val response = api.getPlaylists(userId)
             if (response.code() == 304) {
                 authPreferences.setLastSyncTime("playlists")
+                markOnlineSyncSucceeded()
                 val activeLocal = localPlaylists.filter { !pendingDeletedIds.contains(it.id) }
                 if (activeLocal.isNotEmpty()) {
                     return@withContext activeLocal
                 }
             } else if (response.isSuccessful && response.body() != null) {
+                markOnlineSyncSucceeded()
                 val nowMs = System.currentTimeMillis()
                 val rawBody = response.body()!!
 
@@ -1292,6 +1288,7 @@ class MusicRepository(private val context: Context) {
                 val resp = api.getDailyPlaylists(userId = userId, date = today)
                 updateReachabilityFromHttpCode(resp.code())
                 if (resp.code() == 304 && existingToday != null && existingToday.playlists.isNotEmpty()) {
+                    markOnlineSyncSucceeded()
                     val resolved = existingToday.playlists.map { dp ->
                         val hydrated = attachLocalPaths(dp.songs.map { it.copy(isLiked = likedIds.contains(it.id)) })
                         dp.copy(
@@ -1303,6 +1300,7 @@ class MusicRepository(private val context: Context) {
                     memoryDailyPlaylistsCache = DailyMemorySnapshot(userId, today, resolved)
                     return@withContext resolved
                 } else if (resp.isSuccessful && !resp.body().isNullOrEmpty()) {
+                    markOnlineSyncSucceeded()
                     val dtos = resp.body()!!
                     val mapped = dtos.mapIndexed { index, dto ->
                         val slot = dto.slotIndex.coerceIn(1, 5).let { if (it in 1..5) it else (index + 1) }
@@ -3223,6 +3221,7 @@ class MusicRepository(private val context: Context) {
             val resp = api.getArtists(query = trimmedQuery, unclaimedOnly = unclaimedOnly, limit = 200)
             if (resp.isSuccessful && resp.body() != null) {
                 markServerReachable()
+                markOnlineSyncSucceeded()
                 val mapped = resp.body()!!.map { mapDtoToArtist(it) }
                 if (trimmedQuery.isEmpty() && !unclaimedOnly) {
                     memoryArtistsCache = System.currentTimeMillis() to mapped
@@ -3688,6 +3687,8 @@ class MusicRepository(private val context: Context) {
             val user = authPreferences.getUser() ?: return@withContext Result.failure(Exception("Please sign in with your account"))
             val resp = api.getMyClubs(userId = user.id)
             if (resp.isSuccessful && resp.body() != null) {
+                markServerReachable()
+                markOnlineSyncSucceeded()
                 val list = resp.body()!!.clubs.map { dto ->
                     com.example.model.ClubPlaylistSummary(
                         clubId = dto.clubId,

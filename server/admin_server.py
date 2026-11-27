@@ -1131,6 +1131,12 @@ def song_delete(ctx: Ctx):
             rel = row[col]
             if rel and not c.execute(f"SELECT 1 FROM songs WHERE {col}=? LIMIT 1", (rel,)).fetchone():
                 safe_unlink(rel, base)
+                if col == "cover_path":
+                    thumb_root = getattr(database, "COVER_THUMB_DIR", os.path.join(BASE_DIR, "cover_thumbs"))
+                    cover_name = os.path.basename(rel)
+                    if cover_name:
+                        for tsize in ("128", "256", "400", "800"):
+                            safe_unlink(cover_name, os.path.join(thumb_root, tsize))
     for p in pins:
         safe_unlink(p, PIN_DIR)
     _size_cache.clear()

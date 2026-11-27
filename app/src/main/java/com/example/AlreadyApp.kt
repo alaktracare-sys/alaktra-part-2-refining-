@@ -30,16 +30,8 @@ class AlreadyApp : Application(), ImageLoaderFactory {
     }
 
     override fun newImageLoader(): ImageLoader {
-        val okHttpClient = okhttp3.OkHttpClient.Builder()
-            .cache(okhttp3.Cache(cacheDir.resolve("okhttp_image_cache"), 50L * 1024 * 1024))
-            .addInterceptor(com.example.data.remote.AppSecurityInterceptor())
-            .addInterceptor(com.example.data.remote.cache.OfflineCacheInterceptor(this))
-            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-            .build()
-
         return ImageLoader.Builder(this)
-            .okHttpClient(okHttpClient)
+            .okHttpClient(com.example.data.remote.HttpClients.image(this))
             .memoryCache {
                 MemoryCache.Builder(this)
                     .maxSizePercent(0.25)

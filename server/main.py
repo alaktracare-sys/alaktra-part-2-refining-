@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from starlette.middleware.gzip import GZipMiddleware
 
 # Ensure root server directory is in sys.path
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -27,11 +28,12 @@ if os.path.exists(env_file):
     except Exception as e:
         print(f"⚠️ Could not load .env file: {e}")
 
-from database import init_db, COVER_DIR, MUSIC_DIR, PIN_DIR, ARTIST_DIR, AVATAR_DIR
-from routes import songs, auth, playlists, history, pins, fuse, artists, club, notifications, requests
+from database import init_db, COVER_DIR, COVER_THUMB_DIR, MUSIC_DIR, PIN_DIR, ARTIST_DIR, AVATAR_DIR
+from routes import songs, auth, playlists, history, pins, fuse, artists, club, notifications, requests, thumbs
 
 # Ensure directories exist
 os.makedirs(COVER_DIR, exist_ok=True)
+os.makedirs(COVER_THUMB_DIR, exist_ok=True)
 os.makedirs(MUSIC_DIR, exist_ok=True)
 os.makedirs(PIN_DIR, exist_ok=True)
 os.makedirs(ARTIST_DIR, exist_ok=True)
@@ -48,6 +50,25 @@ app = FastAPI(
     description="Backend audio streaming, authentication, and playlist management API for Android Music Player",
     version="1.0.0"
 )
+
+# Selective GZip for JSON/text API routes (skips compressed media & byte-range streams)
+class SelectiveGZipMiddleware:
+    def __init__(self, asgi_app, minimum_size: int = 500):
+        self.app = asgi_app
+        self.gzip_app = GZipMiddleware(asgi_app, minimum_size=minimum_size)
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+        path = scope.get("path", "")
+        if path.startswith(("/covers", "/cover-thumb", "/music", "/pins", "/artist-media", "/avatars")) or path.endswith("/stream"):
+            await self.app(scope, receive, send)
+            return
+        await self.gzip_app(scope, receive, send)
+
+
+app.add_middleware(SelectiveGZipMiddleware, minimum_size=500)
 
 # CORS Middleware for Android app, web portal, and emulator requests
 app.add_middleware(
@@ -108,7 +129,7 @@ async def verify_app_security(request: Request, call_next):
     is_app_user_agent_valid = bool(user_agent and user_agent.startswith("AlaktraAndroidApp"))
 
     # Allow request if App Secret or App User-Agent is present, or if accessing static asset streams from app player
-    if is_app_secret_valid or is_app_user_agent_valid or path.startswith(("/covers", "/music", "/pins", "/artist-media", "/avatars")):
+    if is_app_secret_valid or is_app_user_agent_valid or path.startswith(("/covers", "/cover-thumb", "/music", "/pins", "/artist-media", "/avatars")):
         return await call_next(request)
 
     return JSONResponse(
@@ -116,14 +137,24 @@ async def verify_app_security(request: Request, call_next):
         content={"detail": "Access denied: Unauthorized client request. Direct browser access is forbidden."}
     )
 
+
+class CachedStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code in (200, 304) and "cache-control" not in response.headers:
+            response.headers["Cache-Control"] = "public, max-age=86400, must-revalidate"
+        return response
+
+
 # Mount static asset directories
-app.mount("/covers", StaticFiles(directory=COVER_DIR), name="covers")
+app.mount("/covers", CachedStaticFiles(directory=COVER_DIR), name="covers")
 app.mount("/music", StaticFiles(directory=MUSIC_DIR), name="music")
-app.mount("/pins", StaticFiles(directory=PIN_DIR), name="pins")
-app.mount("/artist-media", StaticFiles(directory=ARTIST_DIR), name="artist_media")
-app.mount("/avatars", StaticFiles(directory=AVATAR_DIR), name="avatars")
+app.mount("/pins", CachedStaticFiles(directory=PIN_DIR), name="pins")
+app.mount("/artist-media", CachedStaticFiles(directory=ARTIST_DIR), name="artist_media")
+app.mount("/avatars", CachedStaticFiles(directory=AVATAR_DIR), name="avatars")
 
 # Include Routers with exact prefix compatibility for the Android app
+app.include_router(thumbs.router)
 app.include_router(auth.router, prefix="/auth")
 app.include_router(songs.router)
 app.include_router(artists.router)
@@ -173,4 +204,4 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     host = os.getenv("HOST", "0.0.0.0")
     print(f"🎵 Starting Alaktra Music Player Server on {host}:{port}...")
-    uvicorn.run("main:app", host=host, port=port, reload=True)
+    uvicorn.run("main:app", host=host, port=port, reload=False)

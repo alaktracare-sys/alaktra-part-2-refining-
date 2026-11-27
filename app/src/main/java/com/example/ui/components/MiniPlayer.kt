@@ -86,6 +86,7 @@ private fun createLighterShade(color: Color): Color {
 @Composable
 fun MiniPlayer(
     playbackState: PlaybackState,
+    positionMsProvider: () -> Long = { playbackState.currentPositionMs },
     onTogglePlay: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
@@ -100,9 +101,10 @@ fun MiniPlayer(
     val backWavePath = remember { Path() }
     val wavePath = remember { Path() }
 
-    // Wave animation controller: 2-second repeat loop (equivalent to Flutter's AnimationController..repeat())
+    // Continuous wave animation controllers kept as State<Float> and read strictly inside Canvas
+    // draw phase so Row, SongCover, and Text never recompose at 60-120Hz.
     val infiniteTransition = rememberInfiniteTransition(label = "liquid_wave")
-    val wavePhase by infiniteTransition.animateFloat(
+    val wavePhaseState = infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
@@ -111,7 +113,7 @@ fun MiniPlayer(
         ),
         label = "wave_phase"
     )
-    val backWavePhase by infiniteTransition.animateFloat(
+    val backWavePhaseState = infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
@@ -134,37 +136,31 @@ fun MiniPlayer(
     val targetEndColor = remember(rawMajorColor) { createLighterShade(rawMajorColor) }
 
     // Smooth 500ms transition across darker start shade -> major color -> lighter end shade
-    val waveStartColor by animateColorAsState(
+    val waveStartColorState = animateColorAsState(
         targetValue = targetStartColor,
         animationSpec = tween(500),
         label = "waveStartColor"
     )
 
-    val backWaveColor by animateColorAsState(
+    val backWaveColorState = animateColorAsState(
         targetValue = targetBackWaveColor,
         animationSpec = tween(500),
         label = "backWaveColor"
     )
 
-    val waveMidColor by animateColorAsState(
+    val waveMidColorState = animateColorAsState(
         targetValue = rawMajorColor,
         animationSpec = tween(500),
         label = "waveMidColor"
     )
 
-    val waveEndColor by animateColorAsState(
+    val waveEndColorState = animateColorAsState(
         targetValue = targetEndColor,
         animationSpec = tween(500),
         label = "waveEndColor"
     )
 
-    val progressFraction = remember(playbackState.currentPositionMs, playbackState.durationMs) {
-        if (playbackState.durationMs > 0) {
-            (playbackState.currentPositionMs.toFloat() / playbackState.durationMs).coerceIn(0f, 1f)
-        } else {
-            0f
-        }
-    }
+    val durationMs = playbackState.durationMs
 
     val cardShape = RoundedCornerShape(32.dp)
 
@@ -199,27 +195,36 @@ fun MiniPlayer(
             )
             .clickable(onClick = onExpand)
     ) {
-        // 🔥 LIQUID WAVE FILL ACROSS THE PELLET
+        // 🔥 LIQUID WAVE FILL ACROSS THE PELLET (Draw-phase only reads)
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(cardShape)
         ) {
+            val waveMidColor = waveMidColorState.value
+            val progressFraction = if (durationMs > 0L) {
+                (positionMsProvider().toFloat() / durationMs).coerceIn(0f, 1f)
+            } else {
+                0f
+            }
             val width = size.width
             val height = size.height
             val fillWidth = width * progressFraction
 
             if (fillWidth > 0f && waveMidColor.alpha > 0f) {
+                val waveStartColor = waveStartColorState.value
+                val backWaveColor = backWaveColorState.value
+                val waveEndColor = waveEndColorState.value
                 val waveHeight = 6.dp.toPx()
                 val backWaveHeight = 4.dp.toPx()
                 val waveLength = 72.dp.toPx()
                 val backWaveLength = 52.dp.toPx()
                 val twoPi = (2 * PI).toFloat()
                 val halfPi = (PI / 2.0).toFloat()
-                val steps = height.toInt().coerceAtLeast(10)
+                val steps = (height / 2.5.dp.toPx()).toInt().coerceIn(10, 48)
                 val stepHeight = height / steps
-                val phaseOffset = wavePhase * twoPi
-                val backPhaseOffset = (backWavePhase * twoPi) + halfPi
+                val phaseOffset = wavePhaseState.value * twoPi
+                val backPhaseOffset = (backWavePhaseState.value * twoPi) + halfPi
                 val leadRamp = (progressFraction / 0.05f).coerceIn(0f, 1f)
                 val backFillWidth = fillWidth + (6.dp.toPx() * leadRamp)
 

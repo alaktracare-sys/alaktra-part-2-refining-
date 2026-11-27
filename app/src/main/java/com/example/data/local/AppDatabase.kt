@@ -263,16 +263,52 @@ class AppDatabase private constructor(context: Context) :
     fun playlistDao(): PlaylistDao = this
     fun userDao(): UserDao = this
 
-    private fun refreshFlow() {
+    private fun refreshDownloadsFlow() {
         dbScope.launch {
             try {
                 _downloadedSongsFlow.value = queryAllDownloadedSongs()
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun refreshHistoryFlow() {
+        dbScope.launch {
+            try {
                 _listeningHistoryFlow.value = queryAllHistory()
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun refreshSongsFlow() {
+        dbScope.launch {
+            try {
                 _songsFlow.value = queryAllSongs()
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun refreshPlaylistsFlow() {
+        dbScope.launch {
+            try {
                 _playlistsFlow.value = queryAllPlaylists()
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun refreshUserFlow() {
+        dbScope.launch {
+            try {
                 _userFlow.value = queryLatestUser()
             } catch (_: Exception) {}
         }
+    }
+
+    private fun refreshFlow() {
+        refreshDownloadsFlow()
+        refreshHistoryFlow()
+        refreshSongsFlow()
+        refreshPlaylistsFlow()
+        refreshUserFlow()
     }
 
     // ==========================================================
@@ -400,19 +436,19 @@ class AppDatabase private constructor(context: Context) :
             }
         }
         db.insertWithOnConflict("downloaded_songs", null, values, SQLiteDatabase.CONFLICT_REPLACE)
-        refreshFlow()
+        refreshDownloadsFlow()
     }
 
     override suspend fun deleteDownloadedSong(songId: Int): Unit = withContext(Dispatchers.IO) {
         val db = writableDatabase
         db.delete("downloaded_songs", "song_id = ?", arrayOf(songId.toString()))
-        refreshFlow()
+        refreshDownloadsFlow()
     }
 
     override suspend fun deleteAll(): Unit = withContext(Dispatchers.IO) {
         val db = writableDatabase
         db.delete("downloaded_songs", null, null)
-        refreshFlow()
+        refreshDownloadsFlow()
     }
 
     // ==========================================================
@@ -519,7 +555,7 @@ class AppDatabase private constructor(context: Context) :
         } finally {
             db.endTransaction()
         }
-        refreshFlow()
+        refreshSongsFlow()
     }
 
     override suspend fun insertCachedSong(song: SongEntity): Unit = withContext(Dispatchers.IO) {
@@ -544,7 +580,7 @@ class AppDatabase private constructor(context: Context) :
             put("last_synced_at", song.lastSyncedAt)
         }
         db.insertWithOnConflict("songs", null, values, SQLiteDatabase.CONFLICT_REPLACE)
-        refreshFlow()
+        refreshSongsFlow()
     }
 
     override suspend fun updateSongLiked(songId: Int, isLiked: Boolean): Unit = withContext(Dispatchers.IO) {
@@ -553,7 +589,7 @@ class AppDatabase private constructor(context: Context) :
             put("is_liked", if (isLiked) 1 else 0)
         }
         db.update("songs", values, "id = ?", arrayOf(songId.toString()))
-        refreshFlow()
+        refreshSongsFlow()
     }
 
     override suspend fun updateSongDominantColor(songId: Int, dominantColorHex: String): Unit = withContext(Dispatchers.IO) {
@@ -759,7 +795,7 @@ class AppDatabase private constructor(context: Context) :
         } finally {
             db.endTransaction()
         }
-        refreshFlow()
+        refreshPlaylistsFlow()
     }
 
     override suspend fun insertPlaylist(playlist: PlaylistEntity): Unit = withContext(Dispatchers.IO) {
@@ -774,14 +810,14 @@ class AppDatabase private constructor(context: Context) :
             put("last_synced_at", playlist.lastSyncedAt)
         }
         db.insertWithOnConflict("playlists", null, values, SQLiteDatabase.CONFLICT_REPLACE)
-        refreshFlow()
+        refreshPlaylistsFlow()
     }
 
     override suspend fun deletePlaylist(playlistId: Int): Unit = withContext(Dispatchers.IO) {
         val db = writableDatabase
         db.delete("playlists", "id = ?", arrayOf(playlistId.toString()))
         db.delete("playlist_songs", "playlist_id = ?", arrayOf(playlistId.toString()))
-        refreshFlow()
+        refreshPlaylistsFlow()
     }
 
     override suspend fun updatePlaylistName(playlistId: Int, newName: String): Unit = withContext(Dispatchers.IO) {
@@ -790,7 +826,7 @@ class AppDatabase private constructor(context: Context) :
             put("name", newName)
         }
         db.update("playlists", values, "id = ?", arrayOf(playlistId.toString()))
-        refreshFlow()
+        refreshPlaylistsFlow()
     }
 
     override suspend fun getPlaylistSongs(playlistId: Int): List<SongEntity> = withContext(Dispatchers.IO) {
@@ -884,7 +920,8 @@ class AppDatabase private constructor(context: Context) :
         } finally {
             db.endTransaction()
         }
-        refreshFlow()
+        refreshSongsFlow()
+        refreshPlaylistsFlow()
     }
 
     override suspend fun addSongToPlaylist(playlistId: Int, songId: Int, position: Int): Unit = withContext(Dispatchers.IO) {
@@ -896,14 +933,14 @@ class AppDatabase private constructor(context: Context) :
         }
         db.insertWithOnConflict("playlist_songs", null, values, SQLiteDatabase.CONFLICT_REPLACE)
         db.execSQL("UPDATE playlists SET song_count = song_count + 1 WHERE id = ?", arrayOf(playlistId.toString()))
-        refreshFlow()
+        refreshPlaylistsFlow()
     }
 
     override suspend fun removeSongFromPlaylist(playlistId: Int, songId: Int): Unit = withContext(Dispatchers.IO) {
         val db = writableDatabase
         db.delete("playlist_songs", "playlist_id = ? AND song_id = ?", arrayOf(playlistId.toString(), songId.toString()))
         db.execSQL("UPDATE playlists SET song_count = MAX(0, song_count - 1) WHERE id = ?", arrayOf(playlistId.toString()))
-        refreshFlow()
+        refreshPlaylistsFlow()
     }
 
     override suspend fun remapPlaylistId(oldId: Int, newId: Int): Unit = withContext(Dispatchers.IO) {
@@ -916,7 +953,7 @@ class AppDatabase private constructor(context: Context) :
         } finally {
             db.endTransaction()
         }
-        refreshFlow()
+        refreshPlaylistsFlow()
     }
 
     // ==========================================================
@@ -968,13 +1005,13 @@ class AppDatabase private constructor(context: Context) :
             put("last_synced_at", user.lastSyncedAt)
         }
         db.insertWithOnConflict("users", null, values, SQLiteDatabase.CONFLICT_REPLACE)
-        refreshFlow()
+        refreshUserFlow()
     }
 
     override suspend fun clearUser(): Unit = withContext(Dispatchers.IO) {
         val db = writableDatabase
         db.delete("users", null, null)
-        refreshFlow()
+        refreshUserFlow()
     }
 
     // ==========================================================
@@ -1042,7 +1079,7 @@ class AppDatabase private constructor(context: Context) :
             put("played_at", item.playedAt)
         }
         val insertedId = db.insert("listening_history", null, values)
-        refreshFlow()
+        refreshHistoryFlow()
         insertedId
     }
 
@@ -1053,19 +1090,37 @@ class AppDatabase private constructor(context: Context) :
             put("listened_seconds", listenedSeconds)
         }
         db.update("listening_history", values, "id = ?", arrayOf(id.toString()))
-        refreshFlow()
+    }
+
+    suspend fun updateListeningDurationAndRefresh(id: Long, listenedSeconds: Long): Unit = withContext(Dispatchers.IO) {
+        if (id > 0L) {
+            val db = writableDatabase
+            val values = ContentValues().apply {
+                put("listened_seconds", listenedSeconds)
+            }
+            db.update("listening_history", values, "id = ?", arrayOf(id.toString()))
+        }
+        try {
+            _listeningHistoryFlow.value = queryAllHistory()
+        } catch (_: Exception) {}
+    }
+
+    suspend fun refreshHistoryNow(): Unit = withContext(Dispatchers.IO) {
+        try {
+            _listeningHistoryFlow.value = queryAllHistory()
+        } catch (_: Exception) {}
     }
 
     suspend fun deleteHistoryItem(id: Long): Unit = withContext(Dispatchers.IO) {
         val db = writableDatabase
         db.delete("listening_history", "id = ?", arrayOf(id.toString()))
-        refreshFlow()
+        refreshHistoryFlow()
     }
 
     suspend fun clearAllHistory(): Unit = withContext(Dispatchers.IO) {
         val db = writableDatabase
         db.delete("listening_history", null, null)
-        refreshFlow()
+        refreshHistoryFlow()
     }
 
     companion object {

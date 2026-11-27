@@ -8,14 +8,19 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,10 +59,12 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.util.Calendar
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     repository: MusicRepository,
     audioController: AudioController,
+    listState: LazyListState = rememberLazyListState(),
     onNavigateToProfile: () -> Unit,
     onNavigateToEqualizer: () -> Unit = {},
     onNavigateToPlaylistSelect: (Song) -> Unit,
@@ -72,14 +79,14 @@ fun HomeScreen(
     var songs by remember { mutableStateOf(repository.peekCachedSongs()) }
     var playlists by remember { mutableStateOf(repository.peekCachedPlaylists()) }
     var dailyPlaylists by remember { mutableStateOf(repository.peekCachedDailyPlaylists()) }
-    val historyList by repository.listeningHistory.collectAsState(initial = emptyList())
     var isLoading by remember {
         mutableStateOf(songs.isEmpty() || dailyPlaylists.isEmpty() || !repository.hasWarmPlaylistsCache())
     }
+    var isRefreshing by remember { mutableStateOf(false) }
     var selectedSongForMenu by remember { mutableStateOf<Song?>(null) }
     val scope = rememberCoroutineScope()
 
-    val playbackState by audioController.playbackState.collectAsState()
+    val playbackState by audioController.uiState.collectAsState()
     val downloadProgress by repository.downloadManager.downloadProgress.collectAsState()
 
     val user by repository.currentUser.collectAsStateWithLifecycle()
@@ -90,6 +97,33 @@ fun HomeScreen(
             in 5..11 -> "Good morning"
             in 12..17 -> "Good afternoon"
             else -> "Good evening"
+        }
+    }
+
+    suspend fun syncHomeFromServer(force: Boolean) {
+        if (!force && !repository.authPreferences.isSyncStale("home_tab", 35_000L)) {
+            return
+        }
+        val syncAnchor = repository.lastOnlineSyncSucceededAtMs
+        coroutineScope {
+            val songsSync = async { repository.getSongs(forceRefresh = true) }
+            val playlistsSync = async { repository.getPlaylists(forceRefresh = true) }
+            val dailySync = async { repository.getDailyPlaylists(forceRefresh = true) }
+            val profileSync = async { repository.refreshUserProfile() }
+            val freshSongs = songsSync.await()
+            val freshPlaylists = playlistsSync.await()
+            val freshDaily = dailySync.await()
+            profileSync.await()
+            if (freshSongs.isNotEmpty() || !isOnline) {
+                songs = freshSongs
+            }
+            playlists = freshPlaylists
+            if (freshDaily.isNotEmpty()) {
+                dailyPlaylists = freshDaily
+            }
+            if (repository.lastOnlineSyncSucceededAtMs > syncAnchor) {
+                repository.authPreferences.markSynced("home_tab")
+            }
         }
     }
 
@@ -119,24 +153,7 @@ fun HomeScreen(
         }
 
         launch {
-            coroutineScope {
-                val songsSync = async { repository.getSongs(forceRefresh = true) }
-                val playlistsSync = async { repository.getPlaylists(forceRefresh = true) }
-                val dailySync = async { repository.getDailyPlaylists(forceRefresh = true) }
-                val freshSongs = songsSync.await()
-                val freshPlaylists = playlistsSync.await()
-                val freshDaily = dailySync.await()
-                if (freshSongs.isNotEmpty() || !isOnline) {
-                    songs = freshSongs
-                }
-                playlists = freshPlaylists
-                if (freshDaily.isNotEmpty()) {
-                    dailyPlaylists = freshDaily
-                }
-            }
-        }
-        launch {
-            repository.refreshUserProfile()
+            syncHomeFromServer(force = false)
         }
     }
 
@@ -148,22 +165,49 @@ fun HomeScreen(
         WindowWidthSize.EXPANDED -> 180.dp
     }
     val mfyCardWidth = (cardWidth * 1.15f).coerceIn(160.dp, 220.dp)
+    val pullRefreshState = rememberPullToRefreshState()
 
     Scaffold(
         containerColor = AlaktraBackground,
         contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { _ ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize(),
-            contentAlignment = Alignment.TopCenter
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                if (!isRefreshing) {
+                    scope.launch {
+                        isRefreshing = true
+                        try {
+                            syncHomeFromServer(force = true)
+                        } finally {
+                            isRefreshing = false
+                        }
+                    }
+                }
+            },
+            state = pullRefreshState,
+            indicator = {
+                PullToRefreshDefaults.Indicator(
+                    state = pullRefreshState,
+                    isRefreshing = isRefreshing,
+                    containerColor = AlaktraCard,
+                    color = AlaktraMint,
+                    modifier = Modifier.align(Alignment.TopCenter)
+                )
+            },
+            modifier = Modifier.fillMaxSize()
         ) {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .widthIn(max = 1000.dp),
-                contentPadding = PaddingValues(top = 12.dp, bottom = 140.dp)
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.TopCenter
             ) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .widthIn(max = 1000.dp),
+                    contentPadding = PaddingValues(top = 12.dp, bottom = 140.dp)
+                ) {
             // Alaktra Brand Header & Greeting
             item {
                 Column(
@@ -595,6 +639,7 @@ fun HomeScreen(
                     )
                 }
             }
+        }
         }
     }
 }

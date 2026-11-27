@@ -180,14 +180,10 @@ fun AnchoredTodayHistoryBar(
                 if (todayItems.isNotEmpty()) {
                     val latestCover = todayItems.first().coverUrl
                     if (latestCover.isNotBlank()) {
-                        AsyncImage(
-                            model = latestCover,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(CapsuleSubSurface)
+                        com.example.ui.components.SongCover(
+                            imageUrl = latestCover,
+                            size = 34.dp,
+                            cornerRadius = 6.dp
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                     }
@@ -420,11 +416,10 @@ fun HistorySongRow(
                 .background(CapsuleSubSurface)
                 .border(1.dp, CapsuleBorder, RoundedCornerShape(8.dp))
         ) {
-            AsyncImage(
-                model = item.coverUrl,
-                contentDescription = item.title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
+            com.example.ui.components.SongCover(
+                imageUrl = item.coverUrl,
+                size = 48.dp,
+                cornerRadius = 8.dp
             )
         }
 
