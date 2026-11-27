@@ -49,6 +49,8 @@ import com.example.ui.responsive.rememberWindowSizeInfo
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.components.UserAvatar
 import com.example.ui.theme.*
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.util.Calendar
 
@@ -67,11 +69,13 @@ fun HomeScreen(
     val context = LocalContext.current
     val isOnline by remember { com.example.util.NetworkMonitor.observeNetwork(context) }
         .collectAsState(initial = com.example.util.NetworkMonitor.isOnline(context))
-    var songs by remember { mutableStateOf<List<Song>>(emptyList()) }
-    var playlists by remember { mutableStateOf<List<Playlist>>(emptyList()) }
-    var dailyPlaylists by remember { mutableStateOf<List<DailyPlaylist>>(emptyList()) }
+    var songs by remember { mutableStateOf(repository.peekCachedSongs()) }
+    var playlists by remember { mutableStateOf(repository.peekCachedPlaylists()) }
+    var dailyPlaylists by remember { mutableStateOf(repository.peekCachedDailyPlaylists()) }
     val historyList by repository.listeningHistory.collectAsState(initial = emptyList())
-    var isLoading by remember { mutableStateOf(true) }
+    var isLoading by remember {
+        mutableStateOf(songs.isEmpty() || dailyPlaylists.isEmpty() || !repository.hasWarmPlaylistsCache())
+    }
     var selectedSongForMenu by remember { mutableStateOf<Song?>(null) }
     val scope = rememberCoroutineScope()
 
@@ -90,39 +94,48 @@ fun HomeScreen(
     }
 
     LaunchedEffect(Unit) {
-        val initialCached = repository.getCachedSongs()
-        if (initialCached.isNotEmpty()) {
-            songs = initialCached
-            isLoading = false
-        }
-        val initialPlaylists = repository.getCachedPlaylists()
-        if (initialPlaylists.isNotEmpty()) {
-            playlists = initialPlaylists
-        }
-        val initialDaily = repository.getCachedDailyPlaylists()
-        if (initialDaily.isNotEmpty()) {
-            dailyPlaylists = initialDaily
+        if (isLoading) {
+            coroutineScope {
+                val songsDef = async {
+                    repository.getCachedSongs().ifEmpty { repository.getSongs(forceRefresh = false) }
+                }
+                val playlistsDef = async {
+                    repository.getCachedPlaylists().ifEmpty { repository.getPlaylists(forceRefresh = false) }
+                }
+                val dailyDef = async {
+                    repository.getCachedDailyPlaylists().ifEmpty { repository.getDailyPlaylists(forceRefresh = false) }
+                }
+                val resolvedSongs = songsDef.await()
+                val resolvedPlaylists = playlistsDef.await()
+                var resolvedDaily = dailyDef.await()
+                if (resolvedDaily.isEmpty() && resolvedSongs.isNotEmpty()) {
+                    resolvedDaily = repository.getDailyPlaylists(forceRefresh = true)
+                }
+                songs = resolvedSongs
+                playlists = resolvedPlaylists
+                dailyPlaylists = resolvedDaily
+                isLoading = false
+            }
         }
 
-        scope.launch {
-            val freshDaily = repository.getDailyPlaylists(forceRefresh = true)
-            if (freshDaily.isNotEmpty()) {
-                dailyPlaylists = freshDaily
+        launch {
+            coroutineScope {
+                val songsSync = async { repository.getSongs(forceRefresh = true) }
+                val playlistsSync = async { repository.getPlaylists(forceRefresh = true) }
+                val dailySync = async { repository.getDailyPlaylists(forceRefresh = true) }
+                val freshSongs = songsSync.await()
+                val freshPlaylists = playlistsSync.await()
+                val freshDaily = dailySync.await()
+                if (freshSongs.isNotEmpty() || !isOnline) {
+                    songs = freshSongs
+                }
+                playlists = freshPlaylists
+                if (freshDaily.isNotEmpty()) {
+                    dailyPlaylists = freshDaily
+                }
             }
         }
-        scope.launch {
-            val freshSongs = repository.getSongs(forceRefresh = true)
-            songs = freshSongs
-            isLoading = false
-            if (dailyPlaylists.isEmpty() && freshSongs.isNotEmpty()) {
-                dailyPlaylists = repository.getDailyPlaylists(forceRefresh = false)
-            }
-        }
-        scope.launch {
-            val freshPlaylists = repository.getPlaylists(forceRefresh = true)
-            playlists = freshPlaylists
-        }
-        scope.launch {
+        launch {
             repository.refreshUserProfile()
         }
     }

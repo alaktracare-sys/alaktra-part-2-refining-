@@ -18,6 +18,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.example.R
 import com.example.model.Song
 import com.example.ui.theme.*
@@ -40,6 +41,7 @@ fun SongMenuBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = AlaktraCard,
         contentColor = AlaktraTextPrimary,
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         dragHandle = {
             Box(
@@ -163,8 +165,15 @@ fun SongMenuBottomSheet(
                 )
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.navigationBarsPadding().height(64.dp))
         }
+        BottomBlackGradientScrim(
+            extraHeight = 56.dp,
+            minHeight = 68.dp,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .zIndex(10f)
+        )
     }
 }
 }

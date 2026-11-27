@@ -20,7 +20,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.example.R
+import com.example.ui.components.BottomBlackGradientScrim
 import com.example.ui.theme.*
 
 @Composable
@@ -28,26 +30,11 @@ fun WelcomeScreen(
     onNavigateToLogin: () -> Unit,
     onNavigateToSignup: () -> Unit
 ) {
-    val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // Bottom navigation gradient scrim (transparent at top to pitch black at bottom)
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .height((navBarBottom + 48.dp).coerceAtLeast(72.dp))
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, Color.Black)
-                    )
-                )
-        )
-
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
@@ -140,6 +127,14 @@ fun WelcomeScreen(
 
             Spacer(modifier = Modifier.height(14.dp))
         }
+
+        BottomBlackGradientScrim(
+            extraHeight = 64.dp,
+            minHeight = 76.dp,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .zIndex(10f)
+        )
     }
 }
 

@@ -233,13 +233,14 @@ fun QueuePanel(
             }
         }
 
+        val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         // Main flattened projection list
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(bottom = 16.dp),
+            contentPadding = PaddingValues(bottom = navBarBottom + 92.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             // ==========================================

@@ -111,7 +111,7 @@ fun ArtistStudioScreen(
     fun loadStudioState() {
         scope.launch {
             isLoading = true
-            val fetchedArtists = repository.getArtists()
+            val fetchedArtists = repository.getArtists(forceRefresh = true)
             allCatalogArtists = fetchedArtists
 
             val statusRes = repository.getUserArtistStatus()

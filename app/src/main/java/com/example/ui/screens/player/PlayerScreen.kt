@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -32,6 +33,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -39,15 +41,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.audio.AudioController
 import com.example.audio.PlaybackState
 import com.example.audio.RepeatMode
 import com.example.model.Song
+import com.example.model.SongArtistCredit
+import com.example.ui.components.BottomBlackGradientScrim
 import com.example.ui.components.SongCover
 import com.example.ui.theme.*
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun PlayerScreen(
     audioController: AudioController,
@@ -60,6 +66,7 @@ fun PlayerScreen(
     onAddToPlaylist: () -> Unit = {},
     onOpenArtist: (Song) -> Unit = {},
     onSelectArtistCredit: (Int, String) -> Unit = { _, _ -> },
+    resolveArtistAvatar: (Int, String) -> String = { _, _ -> "" },
     onClose: () -> Unit,
     onLikeToggle: () -> Unit
 ) {
@@ -123,11 +130,6 @@ fun PlayerScreen(
             0.68f to midTone.copy(alpha = 0.72f),
             0.88f to bottomTone.copy(alpha = 0.76f),
             1.0f to Color.Black.copy(alpha = 0.86f)
-        )
-    }
-    val bottomScrimBrush = remember {
-        Brush.verticalGradient(
-            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
         )
     }
 
@@ -221,16 +223,12 @@ fun PlayerScreen(
                 .testTag("player_gradient_overlay")
         )
 
-        if (!isLandscape) {
-            val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height((navBarBottom + 48.dp).coerceAtLeast(72.dp))
-                    .background(bottomScrimBrush)
-            )
-        }
+        // 3. Bottom black gradient fade across every screen orientation
+        BottomBlackGradientScrim(
+            extraHeight = 64.dp,
+            minHeight = 76.dp,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
 
         Box(
             contentAlignment = Alignment.Center,
@@ -1174,6 +1172,29 @@ fun PlayerScreen(
 
         // Song Credits Dialog
         if (showCreditsDialog) {
+            val creditEntries = remember(song) {
+                if (song.artists.isNotEmpty()) {
+                    song.artists.sortedWith(
+                        compareBy<SongArtistCredit> { if (it.role.equals("primary", ignoreCase = true)) 0 else 1 }
+                            .thenBy { it.position }
+                    )
+                } else {
+                    val splitNames = song.artist
+                        .split(Regex("\\s*(?:,|\\bfeat\\.?\\b|\\bft\\.?)\\s*", RegexOption.IGNORE_CASE))
+                        .map { it.trim() }
+                        .filter { it.isNotBlank() }
+                        .ifEmpty { listOf(song.primaryArtistName) }
+                    splitNames.mapIndexed { idx, artistName ->
+                        SongArtistCredit(
+                            id = if (idx == 0) (song.primaryArtistId ?: 0) else 0,
+                            name = artistName,
+                            role = if (idx == 0) "primary" else "featured",
+                            position = idx
+                        )
+                    }
+                }
+            }
+
             AlertDialog(
                 onDismissRequest = { showCreditsDialog = false },
                 containerColor = AlaktraCard,
@@ -1210,80 +1231,107 @@ fun PlayerScreen(
                                 color = Color.White
                             )
                         }
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                text = "Performing Artists",
+                                text = "Artists",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Color.White.copy(alpha = 0.5f)
                             )
-                            if (song.artists.isNotEmpty()) {
-                                song.artists.forEach { credit ->
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                creditEntries.forEachIndexed { idx, credit ->
                                     val isPrimary = credit.role.equals("primary", ignoreCase = true)
+                                    val avatarUrl = credit.avatarUrl.ifBlank {
+                                        resolveArtistAvatar(credit.id, credit.name)
+                                    }
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween,
                                         modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clip(RoundedCornerShape(10.dp))
+                                            .heightIn(min = 48.dp)
+                                            .clip(CircleShape)
                                             .background(AlaktraSurface)
+                                            .border(
+                                                width = 1.dp,
+                                                color = if (isPrimary) AlaktraMint.copy(alpha = 0.45f) else AlaktraBorder,
+                                                shape = CircleShape
+                                            )
                                             .clickable {
                                                 showCreditsDialog = false
                                                 onSelectArtistCredit(credit.id, credit.name)
                                             }
-                                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                                            .padding(start = 6.dp, end = 12.dp, top = 6.dp, bottom = 6.dp)
+                                            .testTag("credits_artist_pellet_${credit.id}_$idx")
                                     ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.weight(1f)
+                                        Box(
+                                            contentAlignment = Alignment.Center,
+                                            modifier = Modifier
+                                                .size(34.dp)
+                                                .clip(CircleShape)
+                                                .background(
+                                                    Brush.linearGradient(
+                                                        if (isPrimary) {
+                                                            listOf(AlaktraMint.copy(alpha = 0.35f), AlaktraCyan.copy(alpha = 0.25f))
+                                                        } else {
+                                                            listOf(AlaktraViolet.copy(alpha = 0.35f), AlaktraCyan.copy(alpha = 0.2f))
+                                                        }
+                                                    )
+                                                )
                                         ) {
-                                            Text(
-                                                text = credit.name,
-                                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                                                color = Color.White,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            if (credit.isVerified) {
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Icon(
-                                                    imageVector = Icons.Default.Verified,
-                                                    contentDescription = "Verified",
-                                                    tint = AlaktraCyan,
-                                                    modifier = Modifier.size(14.dp)
+                                            if (avatarUrl.isNotBlank()) {
+                                                AsyncImage(
+                                                    model = remember(avatarUrl) {
+                                                        ImageRequest.Builder(context)
+                                                            .data(avatarUrl)
+                                                            .crossfade(true)
+                                                            .build()
+                                                    },
+                                                    contentDescription = credit.name,
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.fillMaxSize()
+                                                )
+                                            } else {
+                                                Text(
+                                                    text = credit.name.take(1).uppercase(Locale.getDefault()),
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    fontSize = 14.sp,
+                                                    color = Color.White
                                                 )
                                             }
                                         }
+                                        Spacer(modifier = Modifier.width(8.dp))
                                         Text(
-                                            text = if (isPrimary) "Primary" else "Featured",
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (isPrimary) AlaktraMint else Color(0xFFC4B5FD)
+                                            text = credit.name,
+                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = 13.5.sp
+                                            ),
+                                            color = Color.White,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.widthIn(max = 170.dp)
+                                        )
+                                        if (credit.isVerified) {
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Icon(
+                                                imageVector = Icons.Default.Verified,
+                                                contentDescription = "Verified",
+                                                tint = AlaktraCyan,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                            contentDescription = "Open ${credit.name}",
+                                            tint = AlaktraTextSecondary,
+                                            modifier = Modifier.size(16.dp)
                                         )
                                     }
                                 }
-                            } else {
-                                Text(
-                                    text = song.artist,
-                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                                    color = AlaktraCyan,
-                                    modifier = Modifier.clickable {
-                                        showCreditsDialog = false
-                                        onOpenArtist(song)
-                                    }
-                                )
                             }
-                        }
-                        Column {
-                            Text(
-                                text = "Platform & Quality",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color.White.copy(alpha = 0.5f)
-                            )
-                            Text(
-                                text = "Alaktra Stream • Lossless / Hi-Fi Audio",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = AlaktraMint
-                            )
                         }
                     }
                 },

@@ -32,12 +32,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.example.audio.AudioController
 import com.example.audio.ContextType
 import com.example.audio.PlaybackContext
 import com.example.data.repository.MusicRepository
 import com.example.model.ClubPlaylistDetails
 import com.example.model.Song
+import com.example.ui.components.BottomBlackGradientScrim
 import com.example.ui.components.SongCover
 import com.example.ui.components.SongItemRow
 import com.example.ui.components.SongMenuBottomSheet
@@ -539,13 +541,16 @@ fun ClubScreen(
         val details = playlistDetails!!
         ModalBottomSheet(
             onDismissRequest = { showCollaboratorsSheet = false },
-            containerColor = AlaktraCard
+            containerColor = AlaktraCard,
+            contentWindowInsets = { WindowInsets(0, 0, 0, 0) }
         ) {
+            Box(modifier = Modifier.fillMaxWidth()) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp)
-                    .padding(bottom = 32.dp)
+                    .navigationBarsPadding()
+                    .padding(bottom = 64.dp)
             ) {
                 Text(
                     text = "Collaborative Playlist Info",
@@ -713,6 +718,14 @@ fun ClubScreen(
                     }
                 }
             }
+            BottomBlackGradientScrim(
+                extraHeight = 56.dp,
+                minHeight = 68.dp,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .zIndex(10f)
+            )
+            }
         }
     }
 
@@ -733,13 +746,16 @@ fun ClubScreen(
 
         ModalBottomSheet(
             onDismissRequest = { showAddSongSheet = false },
-            containerColor = AlaktraSurface
+            containerColor = AlaktraSurface,
+            contentWindowInsets = { WindowInsets(0, 0, 0, 0) }
         ) {
+            Box(modifier = Modifier.fillMaxWidth()) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
-                    .padding(bottom = 24.dp)
+                    .navigationBarsPadding()
+                    .padding(bottom = 64.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -844,6 +860,14 @@ fun ClubScreen(
                         }
                     }
                 }
+            }
+            BottomBlackGradientScrim(
+                extraHeight = 56.dp,
+                minHeight = 68.dp,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .zIndex(10f)
+            )
             }
         }
     }

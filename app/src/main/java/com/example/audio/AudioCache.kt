@@ -141,6 +141,22 @@ object AudioCache {
     @Volatile
     private var databaseProviderInstance: StandaloneDatabaseProvider? = null
 
+    private val activePreloads = java.util.concurrent.ConcurrentHashMap.newKeySet<Int>()
+
+    private fun createAppHttpDataSourceFactory(
+        connectTimeoutMs: Int = 15000,
+        readTimeoutMs: Int = 20000
+    ): DefaultHttpDataSource.Factory {
+        return DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(connectTimeoutMs)
+            .setReadTimeoutMs(readTimeoutMs)
+            .setUserAgent("AlaktraAndroidApp/${com.example.BuildConfig.VERSION_NAME}")
+            .setDefaultRequestProperties(
+                mapOf("X-App-Secret" to com.example.BuildConfig.API_SECRET)
+            )
+    }
+
     /**
      * Retrieves the current user-configured cache memory cap in megabytes.
      * Defaults to 512 MB.
@@ -277,14 +293,10 @@ object AudioCache {
         val appContext = context.applicationContext
         val cache = getSimpleCache(appContext)
 
-        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15000)
-            .setReadTimeoutMs(20000)
-            .setUserAgent("AlaktraAndroidApp/${com.example.BuildConfig.VERSION_NAME}")
-            .setDefaultRequestProperties(
-                mapOf("X-App-Secret" to com.example.BuildConfig.API_SECRET)
-            )
+        val httpDataSourceFactory = createAppHttpDataSourceFactory(
+            connectTimeoutMs = 15000,
+            readTimeoutMs = 20000
+        )
 
         val cacheDataSourceFactory = CacheDataSource.Factory()
             .setCache(cache)
@@ -415,6 +427,7 @@ object AudioCache {
         songId: Int
     ) {
         if (audioUrl.isBlank() || audioUrl.startsWith("file://")) return
+        if (!activePreloads.add(songId)) return
         val appContext = context.applicationContext
         CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -429,11 +442,10 @@ object AudioCache {
                     .setPosition(0)
                     .build()
 
-                val httpDataSource = DefaultHttpDataSource.Factory()
-                    .setAllowCrossProtocolRedirects(true)
-                    .setConnectTimeoutMs(8000)
-                    .setReadTimeoutMs(15000)
-                    .createDataSource()
+                val httpDataSource = createAppHttpDataSourceFactory(
+                    connectTimeoutMs = 8000,
+                    readTimeoutMs = 15000
+                ).createDataSource()
 
                 val cacheDataSource = CacheDataSource(
                     cache,
@@ -451,6 +463,8 @@ object AudioCache {
                 Log.d(TAG, "Successfully fully cached upcoming song #$songId")
             } catch (e: Exception) {
                 Log.d(TAG, "Preload skipped or interrupted for song #$songId: ${e.message}")
+            } finally {
+                activePreloads.remove(songId)
             }
         }
     }

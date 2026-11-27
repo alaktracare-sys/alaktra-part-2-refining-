@@ -46,6 +46,7 @@ import com.example.ui.components.SongMenuBottomSheet
 import com.example.ui.theme.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
@@ -93,11 +94,12 @@ fun SearchScreen(
     val context = LocalContext.current
     val keyboardController = LocalSoftwareKeyboardController.current
     var query by remember { mutableStateOf("") }
-    var results by remember { mutableStateOf<List<Song>>(emptyList()) }
-    var matchingArtists by remember { mutableStateOf<List<ArtistProfile>>(emptyList()) }
+    var results by remember { mutableStateOf(repository.peekCachedSongs()) }
+    var matchingArtists by remember { mutableStateOf(repository.peekCachedArtists()) }
+    var isInitialReady by remember { mutableStateOf(results.isNotEmpty() && matchingArtists.isNotEmpty()) }
     var isSearching by remember { mutableStateOf(false) }
     var selectedFilter by remember { mutableStateOf(SearchFilter.ALL) }
-    var recentSearches by remember { mutableStateOf<List<String>>(emptyList()) }
+    var recentSearches by remember { mutableStateOf(loadRecentSearches(context)) }
     var selectedSongForMenu by remember { mutableStateOf<Song?>(null) }
     val scope = rememberCoroutineScope()
     var searchJob by remember { mutableStateOf<Job?>(null) }
@@ -106,11 +108,32 @@ fun SearchScreen(
     val downloadProgress by repository.downloadManager.downloadProgress.collectAsState()
 
     LaunchedEffect(Unit) {
-        recentSearches = loadRecentSearches(context)
-        val songsDeferred = async { repository.getSongs() }
-        val artistsDeferred = async { repository.getArtists() }
-        results = songsDeferred.await()
-        matchingArtists = artistsDeferred.await()
+        if (!isInitialReady) {
+            coroutineScope {
+                val songsDeferred = async {
+                    repository.getCachedSongs().ifEmpty { repository.getSongs(forceRefresh = false) }
+                }
+                val artistsDeferred = async {
+                    repository.getArtists(forceRefresh = false)
+                }
+                val initialSongs = songsDeferred.await()
+                val initialArtists = artistsDeferred.await()
+                results = initialSongs
+                matchingArtists = initialArtists
+                isInitialReady = true
+            }
+        }
+
+        coroutineScope {
+            val freshSongsDeferred = async { repository.getSongs(forceRefresh = true) }
+            val freshArtistsDeferred = async { repository.getArtists(forceRefresh = true) }
+            val freshSongs = freshSongsDeferred.await()
+            val freshArtists = freshArtistsDeferred.await()
+            if (query.isBlank()) {
+                if (freshSongs.isNotEmpty()) results = freshSongs
+                if (freshArtists.isNotEmpty()) matchingArtists = freshArtists
+            }
+        }
     }
 
     fun addRecentSearch(term: String) {
@@ -135,14 +158,28 @@ fun SearchScreen(
 
     fun triggerSearch(q: String) {
         searchJob?.cancel()
+        if (q.isBlank()) {
+            val cachedSongs = repository.peekCachedSongs()
+            val cachedArtists = repository.peekCachedArtists()
+            if (cachedSongs.isNotEmpty() && cachedArtists.isNotEmpty()) {
+                results = cachedSongs
+                matchingArtists = cachedArtists
+                isSearching = false
+                return
+            }
+        }
         searchJob = scope.launch {
             delay(200)
             isSearching = true
-            val songsDeferred = async { repository.getSongs(query = q.ifBlank { null }) }
-            val artistsDeferred = async { repository.getArtists(query = q.trim()) }
-            results = songsDeferred.await()
-            matchingArtists = artistsDeferred.await()
-            isSearching = false
+            coroutineScope {
+                val songsDeferred = async { repository.getSongs(query = q.ifBlank { null }) }
+                val artistsDeferred = async { repository.getArtists(query = q.trim()) }
+                val nextSongs = songsDeferred.await()
+                val nextArtists = artistsDeferred.await()
+                results = nextSongs
+                matchingArtists = nextArtists
+                isSearching = false
+            }
         }
     }
 
@@ -277,7 +314,7 @@ fun SearchScreen(
                     }
                 }
 
-                if (isSearching) {
+                if (isSearching || !isInitialReady) {
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier.fillMaxSize()

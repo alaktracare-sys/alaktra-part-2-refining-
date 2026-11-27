@@ -51,6 +51,7 @@ import com.example.data.repository.MusicRepository
 import com.example.model.Playlist
 import com.example.model.Song
 import com.example.ui.components.ArtistCreditsBottomSheet
+import com.example.ui.components.BottomBlackGradientScrim
 import com.example.ui.components.MiniPlayer
 import com.example.ui.responsive.rememberWindowSizeInfo
 import com.example.ui.screens.artist.ArtistProfileScreen
@@ -129,7 +130,8 @@ fun MainShell(
         .collectAsState(initial = com.example.util.NetworkMonitor.isOnline(context))
 
     LaunchedEffect(Unit) {
-        PinsSessionCache.prewarm(context, repository)
+        launch { PinsSessionCache.prewarm(context, repository) }
+        launch { repository.prewarmCatalogForUi() }
     }
 
     LaunchedEffect(isOnline) {
@@ -707,23 +709,12 @@ fun MainShell(
 
         // Bottom navigation gradient scrim (transparent at top to pitch black at bottom)
         if (!showFullPlayer) {
-            val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-            val bottomScrimHeight = if (hasBottomBar) {
-                navBarBottom + 84.dp
-            } else {
-                (navBarBottom + 48.dp).coerceAtLeast(72.dp)
-            }
-            Box(
+            BottomBlackGradientScrim(
+                extraHeight = if (hasBottomBar) 84.dp else 64.dp,
+                minHeight = 72.dp,
                 modifier = Modifier
                     .zIndex(1f)
                     .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(bottomScrimHeight)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(Color.Transparent, Color.Black)
-                        )
-                    )
             )
         }
 
@@ -1033,6 +1024,11 @@ fun MainShell(
                 onSelectArtistCredit = { artistId, artistName ->
                     openArtistByHint(artistId.takeIf { it > 0 }, artistName)
                 },
+                resolveArtistAvatar = { id, name ->
+                    val cached = repository.peekCachedArtists()
+                    cached.firstOrNull { (id > 0 && it.id == id) || it.name.equals(name, ignoreCase = true) }
+                        ?.avatarUrl.orEmpty()
+                },
                 onClose = { showFullPlayer = false },
                 onLikeToggle = {
                     playerPlaybackState.currentSong?.let { song ->
@@ -1063,6 +1059,7 @@ fun MainShell(
                 onDismissRequest = { songForPlaylistSelection = null },
                 containerColor = AlaktraCard,
                 contentColor = AlaktraTextPrimary,
+                contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
                 shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
             ) {
                 Box(
@@ -1125,8 +1122,15 @@ fun MainShell(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(24.dp))
+                        Spacer(modifier = Modifier.navigationBarsPadding().height(64.dp))
                     }
+                    BottomBlackGradientScrim(
+                        extraHeight = 56.dp,
+                        minHeight = 68.dp,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .zIndex(10f)
+                    )
                 }
             }
         }

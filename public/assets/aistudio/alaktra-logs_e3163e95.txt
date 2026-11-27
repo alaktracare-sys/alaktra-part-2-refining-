@@ -1,0 +1,86 @@
+21:34:52 [info] admin: Admin console listening on 0.0.0.0:8080
+21:34:52 [info] admin: Starting Cloudflare tunnel (alaktra) for admin & API routing
+21:34:53 [info] tunnel: 2026-11-26T16:04:53Z INF Starting tunnel tunnelID=d0c04dae-2a76-44da-a966-0de86eaac1ef
+21:34:53 [info] tunnel: 2026-11-26T16:04:53Z INF Version 2026.10.1 (Checksum 3bfc539f45d2620c71debb7a86be0efa737ed5ccbad9eb85c787116900e5c586)
+21:34:53 [info] tunnel: 2026-11-26T16:04:53Z INF GOOS: linux, GOVersion: go1.27.2, GoArch: amd64
+21:34:53 [info] tunnel: 2026-11-26T16:04:53Z INF Settings: map[cred-file:/home/kali/.cloudflared/d0c04dae-2a76-44da-a966-0de86eaac1ef.json credentials-file:/home/kali/.cloudflared/d0c04dae-2a76-44da-a966-0de86eaac1ef.json]
+21:34:53 [info] tunnel: 2026-11-26T16:04:53Z INF Environmental variables map[CF_TUNNEL_NAME:alaktra]
+21:34:53 [info] tunnel: 2026-11-26T16:04:53Z INF cloudflared will not automatically update if installed by a package manager.
+21:34:53 [info] tunnel: 2026-11-26T16:04:53Z INF Generated Connector ID: 54807eb0-354d-4c90-a5e0-6cba3a232876
+21:34:53 [info] tunnel: 2026-11-26T16:04:53Z INF Initial protocol quic
+21:34:53 [info] tunnel: 2026-11-26T16:04:53Z INF ICMP proxy will use 192.168.43.60 as source for IPv4
+21:34:53 [info] tunnel: 2026-11-26T16:04:53Z INF ICMP proxy will use 2401:4900:4046:f7a1:a093:d16e:a4ea:be67 in zone wlan0 as source for IPv6
+21:34:53 [info] tunnel: 2026-11-26T16:04:53Z INF ICMP proxy will use 192.168.43.60 as source for IPv4
+21:34:53 [info] tunnel: 2026-11-26T16:04:53Z INF ICMP proxy will use 2401:4900:4046:f7a1:a093:d16e:a4ea:be67 in zone wlan0 as source for IPv6
+21:34:53 [info] tunnel: 2026-11-26T16:04:53Z INF Starting metrics server on 127.0.0.1:20241/metrics
+21:34:53 [info] tunnel: 2026-11-26T16:04:53Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=0 event=0 ip=2606:4700:a0::2
+21:34:54 [info] tunnel: 2026-11-26T16:04:54Z INF Registered tunnel connection connIndex=0 connection=cdce4acd-62c2-430e-bf44-d0cd0f554b61 event=0 ip=2606:4700:a0::2 location=del01 protocol=quic
+21:34:54 [info] tunnel: 2026-11-26T16:04:54Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=1 event=0 ip=2606:4700:a8::3
+21:34:54 [info] tunnel: 2026-11-26T16:04:54Z INF +-------------------------------------------------------------------------------------+
+21:34:54 [info] tunnel: 2026-11-26T16:04:54Z INF |                               CONNECTIVITY PRE-CHECKS                               |
+21:34:54 [info] tunnel: 2026-11-26T16:04:54Z INF +-------------------------------------------------------------------------------------+
+21:34:54 [info] tunnel: 2026-11-26T16:04:54Z INF |  COMPONENT         TARGET                     STATUS  DETAILS                       |
+21:34:54 [info] tunnel: 2026-11-26T16:04:54Z INF |  DNS Resolution    region1.v2.argotunnel.com  PASS    DNS Resolved successfully     |
+21:34:54 [info] tunnel: 2026-11-26T16:04:54Z INF |  DNS Resolution    region2.v2.argotunnel.com  PASS    DNS Resolved successfully     |
+21:34:54 [info] tunnel: 2026-11-26T16:04:54Z INF |  UDP Connectivity  region1.v2.argotunnel.com  PASS    QUIC connection successful    |
+21:34:54 [info] tunnel: 2026-11-26T16:04:54Z INF |  UDP Connectivity  region2.v2.argotunnel.com  PASS    QUIC connection successful    |
+21:34:54 [info] tunnel: 2026-11-26T16:04:54Z INF |  TCP Connectivity  region1.v2.argotunnel.com  PASS    HTTP/2 connection successful  |
+21:34:54 [info] tunnel: 2026-11-26T16:04:54Z INF |  TCP Connectivity  region2.v2.argotunnel.com  PASS    HTTP/2 connection successful  |
+21:34:54 [info] tunnel: 2026-11-26T16:04:54Z INF |  Cloudflare API    api.cloudflare.com:443     PASS    API is reachable              |
+21:34:54 [info] tunnel: 2026-11-26T16:04:54Z INF |                                                                                     |
+21:34:54 [info] tunnel: 2026-11-26T16:04:54Z INF |  SUMMARY: Environment is healthy. cloudflared will use 'quic' as primary protocol.  |
+21:34:54 [info] tunnel: 2026-11-26T16:04:54Z INF +-------------------------------------------------------------------------------------+
+21:34:54 [info] tunnel: 2026-11-26T16:04:54Z INF precheck component="DNS Resolution" details="DNS Resolved successfully" run_id=f2504723-a9a2-498f-9e4a-388f376c6ce9 status=pass target=region1.v2.argotunnel.com
+21:34:54 [info] tunnel: 2026-11-26T16:04:54Z INF precheck component="DNS Resolution" details="DNS Resolved successfully" run_id=f2504723-a9a2-498f-9e4a-388f376c6ce9 status=pass target=region2.v2.argotunnel.com
+21:34:54 [info] tunnel: 2026-11-26T16:04:54Z INF precheck component="UDP Connectivity" details="QUIC connection successful" run_id=f2504723-a9a2-498f-9e4a-388f376c6ce9 status=pass target=region1.v2.argotunnel.com
+21:34:54 [info] tunnel: 2026-11-26T16:04:54Z INF precheck component="UDP Connectivity" details="QUIC connection successful" run_id=f2504723-a9a2-498f-9e4a-388f376c6ce9 status=pass target=region2.v2.argotunnel.com
+21:34:54 [info] tunnel: 2026-11-26T16:04:54Z INF precheck component="TCP Connectivity" details="HTTP/2 connection successful" run_id=f2504723-a9a2-498f-9e4a-388f376c6ce9 status=pass target=region1.v2.argotunnel.com
+21:34:54 [info] tunnel: 2026-11-26T16:04:54Z INF precheck component="TCP Connectivity" details="HTTP/2 connection successful" run_id=f2504723-a9a2-498f-9e4a-388f376c6ce9 status=pass target=region2.v2.argotunnel.com
+21:34:54 [info] tunnel: 2026-11-26T16:04:54Z INF precheck component="Cloudflare API" details="API is reachable" run_id=f2504723-a9a2-498f-9e4a-388f376c6ce9 status=pass target=api.cloudflare.com:443
+21:34:54 [info] tunnel: 2026-11-26T16:04:54Z INF precheck complete hard_fail=false run_id=f2504723-a9a2-498f-9e4a-388f376c6ce9 suggested_protocol=quic
+21:34:55 [info] tunnel: 2026-11-26T16:04:55Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=2 event=0 ip=2606:4700:a0::9
+21:34:55 [info] tunnel: 2026-11-26T16:04:55Z INF Registered tunnel connection connIndex=1 connection=2e070ec1-2b70-4f50-adc3-6dfe5d4cee8c event=0 ip=2606:4700:a8::3 location=del04 protocol=quic
+21:34:56 [info] tunnel: 2026-11-26T16:04:56Z INF Registered tunnel connection connIndex=2 connection=acdb9466-bcdc-4393-a5f4-c63e351b7cac event=0 ip=2606:4700:a0::9 location=del01 protocol=quic
+21:34:56 [info] tunnel: 2026-11-26T16:04:56Z INF Tunnel connection curve preferences: [X25519MLKEM768 CurveID(65074) CurveP256] connIndex=3 event=0 ip=2606:4700:a8::2
+21:34:57 [info] tunnel: 2026-11-26T16:04:57Z INF Registered tunnel connection connIndex=3 connection=f99e579a-bac3-46bc-bab4-3a8d1918395d event=0 ip=2606:4700:a8::2 location=del05 protocol=quic
+21:35:02 [info] admin: Admin signed in from 127.0.0.1
+21:35:18 [info] admin: Starting API: /home/kali/server/venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000
+21:35:26 [info] api: INFO:     Started server process [7103]
+21:35:26 [info] api: INFO:     Waiting for application startup.
+21:35:26 [info] api: INFO:     Application startup complete.
+21:35:26 [info] api: INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+21:35:26 [info] admin: Start requested -> {'api': 'started', 'tunnel': 'already running'}
+21:35:39 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "POST /history/sync HTTP/1.1" 200 OK
+21:35:41 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /notifications/history?user_id=1000 HTTP/1.1" 200 OK
+21:35:41 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "POST /notifications/register-token HTTP/1.1" 200 OK
+21:35:43 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /history/sound-capsule/1000 HTTP/1.1" 200 OK
+21:35:43 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /songs/559/stream HTTP/1.1" 200 OK
+21:35:48 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /playlists/1000 HTTP/1.1" 200 OK
+21:35:48 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /auth/profile HTTP/1.1" 200 OK
+21:35:49 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /playlists/daily/1000?date=2026-11-26 HTTP/1.1" 200 OK
+21:35:49 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /songs HTTP/1.1" 200 OK
+21:36:00 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /covers/fabdc6cc-3ebb-4e78-82b4-ae490a436e92.jpg HTTP/1.1" 304 Not Modified
+21:36:01 [err] tunnel: 2026-11-26T16:06:01Z ERR  error="Incoming request ended abruptly: context canceled" connIndex=0 event=1 ingressRule=1 originService=http://localhost:8000
+21:36:01 [err] tunnel: 2026-11-26T16:06:01Z ERR Request failed error="Incoming request ended abruptly: context canceled" connIndex=0 dest=https://api.alaktracare.in/pins event=0 ip=2606:4700:a0::2 type=http
+21:36:04 [err] tunnel: 2026-11-26T16:06:04Z ERR  error="Incoming request ended abruptly: context canceled" connIndex=0 event=1 ingressRule=1 originService=http://localhost:8000
+21:36:04 [err] tunnel: 2026-11-26T16:06:04Z ERR Request failed error="Incoming request ended abruptly: context canceled" connIndex=0 dest=https://api.alaktracare.in/pins event=0 ip=2606:4700:a0::2 type=http
+21:36:07 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /covers/36300668-5c79-4b73-a9cc-9a730334dfc2.jpg HTTP/1.1" 304 Not Modified
+21:36:07 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /covers/db11ebe0-8885-49ad-adb0-10b7d8b0a957.jpg HTTP/1.1" 304 Not Modified
+21:36:07 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /covers/71549eda-7725-4a3d-909d-130d0c7d24bd.jpg HTTP/1.1" 304 Not Modified
+21:36:09 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /covers/29ef5448-6aeb-48f0-9c96-640cfd43246e.jpg HTTP/1.1" 304 Not Modified
+21:36:09 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /covers/480b8603-1a1d-4973-ae0a-78552b2c6e3e.jpg HTTP/1.1" 304 Not Modified
+21:36:09 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /covers/ba42f2d7-52bc-4227-8d5d-22b62bb7d949.jpg HTTP/1.1" 304 Not Modified
+21:36:11 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /songs/595/stream HTTP/1.1" 200 OK
+21:36:11 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /covers/b767e0d1-1947-4e1f-a46c-cdc04f4252af.jpg HTTP/1.1" 200 OK
+21:36:11 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /songs/396/stream HTTP/1.1" 200 OK
+21:38:28 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /songs/178/stream HTTP/1.1" 200 OK
+21:38:28 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /covers/c993cfc1-61c5-48f7-9caa-6503b7514ff7.jpg HTTP/1.1" 200 OK
+21:38:37 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /songs/178/stream HTTP/1.1" 206 Partial Content
+21:38:37 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /covers/ac7dfcc8-3241-4693-b94d-49c4472e2177.jpg HTTP/1.1" 200 OK
+21:38:38 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /songs/271/stream HTTP/1.1" 200 OK
+21:39:10 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /covers/06444d51-35a3-481f-bf16-fded8eaaf3c9.jpg HTTP/1.1" 304 Not Modified
+21:39:11 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /covers/2227f608-7e87-45fb-9b61-0bdfdb9d979e.jpg HTTP/1.1" 304 Not Modified
+21:39:11 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /covers/7419979b-8cb0-4639-8616-59964393b6d4.jpg HTTP/1.1" 304 Not Modified
+21:39:12 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /songs/194/stream HTTP/1.1" 200 OK
+21:39:12 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /songs/586/stream HTTP/1.1" 200 OK
+21:39:12 [info] api: INFO:     2401:4900:44d9:493e:d7af:61e9:ed88:36c4:0 - "GET /covers/f5266a98-f9b0-4b45-92cb-a86353e163d9.jpg HTTP/1.1" 200 OK

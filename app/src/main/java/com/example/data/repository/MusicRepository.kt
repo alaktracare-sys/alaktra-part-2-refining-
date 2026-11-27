@@ -66,6 +66,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -104,8 +106,73 @@ class MusicRepository(private val context: Context) {
     @Volatile
     private var cachedMyClubsList: List<com.example.model.ClubPlaylistSummary>? = null
 
+    private data class DailyMemorySnapshot(
+        val userId: Int,
+        val date: String,
+        val playlists: List<DailyPlaylist>
+    )
+
+    @Volatile
+    private var memoryDailyPlaylistsCache: DailyMemorySnapshot? = null
+
+    @Volatile
+    private var memoryArtistsCache: Pair<Long, List<ArtistProfile>>? = null
+
     fun getCachedMyClubs(): List<com.example.model.ClubPlaylistSummary> {
         return cachedMyClubsList.orEmpty()
+    }
+
+    fun peekCachedSongs(): List<Song> {
+        val cached = apiCacheManager.getFeed("home_feed") ?: return emptyList()
+        val likedIds = authPreferences.getLikedSongIds()
+        return cached.map { it.copy(isLiked = likedIds.contains(it.id)) }
+    }
+
+    fun hasWarmPlaylistsCache(): Boolean {
+        return apiCacheManager.getUserPlaylists(getEffectiveUserId()) != null
+    }
+
+    fun peekCachedPlaylists(): List<Playlist> {
+        val userId = getEffectiveUserId()
+        return apiCacheManager.getUserPlaylists(userId)
+            ?.filter { !FuseCodeCodec.isPendingMarker(it.name) }
+            .orEmpty()
+    }
+
+    fun peekCachedDailyPlaylists(): List<DailyPlaylist> {
+        val userId = getEffectiveUserId()
+        val today = todayDateString()
+        val snap = memoryDailyPlaylistsCache ?: return emptyList()
+        if (snap.userId != userId || snap.date != today) return emptyList()
+        val likedIds = authPreferences.getLikedSongIds()
+        return snap.playlists.map { dp ->
+            val hydrated = dp.songs.map { it.copy(isLiked = likedIds.contains(it.id)) }
+            dp.copy(
+                songs = hydrated,
+                songCount = hydrated.size,
+                previewCovers = hydrated.mapNotNull { it.coverUrl.takeIf(String::isNotBlank) }.distinct().take(4)
+            )
+        }
+    }
+
+    fun peekCachedArtists(): List<ArtistProfile> {
+        val entry = memoryArtistsCache ?: return emptyList()
+        if ((System.currentTimeMillis() - entry.first) > ApiCacheConfig.ARTIST_TTL_MS) {
+            memoryArtistsCache = null
+            return emptyList()
+        }
+        return entry.second
+    }
+
+    suspend fun prewarmCatalogForUi() = coroutineScope {
+        val songsJob = async { getSongs(forceRefresh = false) }
+        val playlistsJob = async { getPlaylists(forceRefresh = false) }
+        val artistsJob = async { getArtists(forceRefresh = false) }
+        val dailyJob = async { getDailyPlaylists(forceRefresh = false) }
+        songsJob.await()
+        playlistsJob.await()
+        artistsJob.await()
+        dailyJob.await()
     }
 
     init {
@@ -703,6 +770,8 @@ class MusicRepository(private val context: Context) {
                 val msg = response.body()?.message ?: "Account deleted successfully"
                 activeFuseSession = null
                 cachedMyClubsList = null
+                memoryDailyPlaylistsCache = null
+                memoryArtistsCache = null
                 apiCacheManager.clearAll()
                 runCatching { appDatabase.clearAllHistory() }
                 userDao.clearUser()
@@ -781,16 +850,7 @@ class MusicRepository(private val context: Context) {
                     }
                 } else if (response.isSuccessful && response.body() != null) {
                     val remoteSongs = response.body()!!.map { dto ->
-                        Song(
-                            id = dto.id,
-                            title = dto.title ?: "Untitled Track",
-                            artist = dto.artist ?: "Unknown Artist",
-                            audioUrl = sanitizeUrl(dto.audioUrl),
-                            coverUrl = sanitizeUrl(dto.coverUrl),
-                            duration = dto.duration,
-                            isLiked = likedIds.contains(dto.id),
-                            dominantColorHex = dto.dominantColor
-                        )
+                        mapDtoToSong(dto, likedIds)
                     }
                     apiCacheManager.putFeed("home_feed", remoteSongs)
                     songDao.insertCachedSongs(remoteSongs.map { SongEntity.fromSong(it) })
@@ -848,16 +908,7 @@ class MusicRepository(private val context: Context) {
             val response = api.searchSongs(query = q, limit = limit, offset = actualOffset)
             if (response.isSuccessful && response.body() != null) {
                 val songs = response.body()!!.map { dto ->
-                    Song(
-                        id = dto.id,
-                        title = dto.title ?: "Untitled Track",
-                        artist = dto.artist ?: "Unknown Artist",
-                        audioUrl = sanitizeUrl(dto.audioUrl),
-                        coverUrl = sanitizeUrl(dto.coverUrl),
-                        duration = dto.duration,
-                        isLiked = likedIds.contains(dto.id),
-                        dominantColorHex = dto.dominantColor
-                    )
+                    mapDtoToSong(dto, likedIds)
                 }
                 apiCacheManager.putSearch(searchKey, songs)
                 if (songs.isNotEmpty()) {
@@ -895,16 +946,8 @@ class MusicRepository(private val context: Context) {
             val response = api.searchSongs(query = artist, limit = 50, offset = 0)
             if (response.isSuccessful && response.body() != null) {
                 val songs = response.body()!!.map { dto ->
-                    Song(
-                        id = dto.id,
-                        title = dto.title ?: "Untitled Track",
-                        artist = dto.artist ?: "Unknown Artist",
-                        audioUrl = sanitizeUrl(dto.audioUrl),
-                        coverUrl = sanitizeUrl(dto.coverUrl),
-                        duration = dto.duration,
-                        isLiked = likedIds.contains(dto.id)
-                    )
-                }.filter { it.artist.contains(artist, ignoreCase = true) }
+                    mapDtoToSong(dto, likedIds)
+                }.filter { it.artist.contains(artist, ignoreCase = true) || it.artists.any { c -> c.name.contains(artist, ignoreCase = true) } }
 
                 if (songs.isNotEmpty()) {
                     apiCacheManager.putArtist(key, songs)
@@ -942,15 +985,7 @@ class MusicRepository(private val context: Context) {
             val response = api.searchSongs(query = album, limit = 50, offset = 0)
             if (response.isSuccessful && response.body() != null) {
                 val songs = response.body()!!.map { dto ->
-                    Song(
-                        id = dto.id,
-                        title = dto.title ?: "Untitled Track",
-                        artist = dto.artist ?: "Unknown Artist",
-                        audioUrl = sanitizeUrl(dto.audioUrl),
-                        coverUrl = sanitizeUrl(dto.coverUrl),
-                        duration = dto.duration,
-                        isLiked = likedIds.contains(dto.id)
-                    )
+                    mapDtoToSong(dto, likedIds)
                 }
                 if (songs.isNotEmpty()) {
                     apiCacheManager.putAlbum(key, songs)
@@ -1204,9 +1239,20 @@ class MusicRepository(private val context: Context) {
         val userId = getEffectiveUserId()
         val today = todayDateString()
         val likedIds = authPreferences.getLikedSongIds()
+        val mem = peekCachedDailyPlaylists()
+        if (mem.isNotEmpty()) {
+            return@withContext mem.map { dp ->
+                val hydrated = attachLocalPaths(dp.songs)
+                dp.copy(
+                    songs = hydrated,
+                    songCount = hydrated.size,
+                    previewCovers = hydrated.mapNotNull { it.coverUrl.takeIf(String::isNotBlank) }.distinct().take(4)
+                )
+            }
+        }
         val snapshot = authPreferences.getDailyPlaylistsSnapshot(userId, expectedDate = today)
             ?: return@withContext emptyList()
-        snapshot.playlists.map { dp ->
+        val resolved = snapshot.playlists.map { dp ->
             val hydrated = attachLocalPaths(dp.songs.map { it.copy(isLiked = likedIds.contains(it.id)) })
             dp.copy(
                 songs = hydrated,
@@ -1214,6 +1260,10 @@ class MusicRepository(private val context: Context) {
                 previewCovers = hydrated.mapNotNull { it.coverUrl.takeIf(String::isNotBlank) }.distinct().take(4)
             )
         }
+        if (resolved.isNotEmpty()) {
+            memoryDailyPlaylistsCache = DailyMemorySnapshot(userId, today, resolved)
+        }
+        resolved
     }
 
     suspend fun getDailyPlaylists(forceRefresh: Boolean = false): List<DailyPlaylist> = withContext(Dispatchers.IO) {
@@ -1224,7 +1274,7 @@ class MusicRepository(private val context: Context) {
         // Always load today's snapshot (automatically deletes any older day's playlists)
         val existingToday = authPreferences.getDailyPlaylistsSnapshot(userId, expectedDate = today)
         if (!forceRefresh && existingToday != null && existingToday.playlists.size == 5 && existingToday.playlists.all { it.songs.isNotEmpty() }) {
-            return@withContext existingToday.playlists.map { dp ->
+            val resolved = existingToday.playlists.map { dp ->
                 val hydrated = attachLocalPaths(dp.songs.map { it.copy(isLiked = likedIds.contains(it.id)) })
                 dp.copy(
                     songs = hydrated,
@@ -1232,6 +1282,8 @@ class MusicRepository(private val context: Context) {
                     previewCovers = hydrated.mapNotNull { it.coverUrl.takeIf(String::isNotBlank) }.distinct().take(4)
                 )
             }
+            memoryDailyPlaylistsCache = DailyMemorySnapshot(userId, today, resolved)
+            return@withContext resolved
         }
 
         // Try authoritative backend endpoint (saves today's 5x30 playlists per user & deletes previous days)
@@ -1240,7 +1292,7 @@ class MusicRepository(private val context: Context) {
                 val resp = api.getDailyPlaylists(userId = userId, date = today)
                 updateReachabilityFromHttpCode(resp.code())
                 if (resp.code() == 304 && existingToday != null && existingToday.playlists.isNotEmpty()) {
-                    return@withContext existingToday.playlists.map { dp ->
+                    val resolved = existingToday.playlists.map { dp ->
                         val hydrated = attachLocalPaths(dp.songs.map { it.copy(isLiked = likedIds.contains(it.id)) })
                         dp.copy(
                             songs = hydrated,
@@ -1248,6 +1300,8 @@ class MusicRepository(private val context: Context) {
                             previewCovers = hydrated.mapNotNull { it.coverUrl.takeIf(String::isNotBlank) }.distinct().take(4)
                         )
                     }
+                    memoryDailyPlaylistsCache = DailyMemorySnapshot(userId, today, resolved)
+                    return@withContext resolved
                 } else if (resp.isSuccessful && !resp.body().isNullOrEmpty()) {
                     val dtos = resp.body()!!
                     val mapped = dtos.mapIndexed { index, dto ->
@@ -1281,6 +1335,7 @@ class MusicRepository(private val context: Context) {
                         }
                         // Overwrite/save today's snapshot (automatically removes old days' saved playlists)
                         authPreferences.saveDailyPlaylistsSnapshot(userId, today, "server", mapped)
+                        memoryDailyPlaylistsCache = DailyMemorySnapshot(userId, today, mapped)
                         return@withContext mapped
                     }
                 }
@@ -1292,7 +1347,7 @@ class MusicRepository(private val context: Context) {
 
         // If we already saved today's 5 playlists locally, keep them fixed for the entire day (never re-randomize mid-day)
         if (existingToday != null && existingToday.playlists.size == 5 && existingToday.playlists.all { it.songs.isNotEmpty() }) {
-            return@withContext existingToday.playlists.map { dp ->
+            val resolved = existingToday.playlists.map { dp ->
                 val hydrated = attachLocalPaths(dp.songs.map { it.copy(isLiked = likedIds.contains(it.id)) })
                 dp.copy(
                     songs = hydrated,
@@ -1300,6 +1355,8 @@ class MusicRepository(private val context: Context) {
                     previewCovers = hydrated.mapNotNull { it.coverUrl.takeIf(String::isNotBlank) }.distinct().take(4)
                 )
             }
+            memoryDailyPlaylistsCache = DailyMemorySnapshot(userId, today, resolved)
+            return@withContext resolved
         }
 
         // Local fallback generation if offline or backend endpoint is not yet updated:
@@ -1357,6 +1414,7 @@ class MusicRepository(private val context: Context) {
         }
 
         authPreferences.saveDailyPlaylistsSnapshot(userId, today, "local", generated)
+        memoryDailyPlaylistsCache = DailyMemorySnapshot(userId, today, generated)
         generated
     }
 
@@ -1927,6 +1985,8 @@ class MusicRepository(private val context: Context) {
         runCatching { syncHistoryIfDue(force = true) }
         activeFuseSession = null
         cachedMyClubsList = null
+        memoryDailyPlaylistsCache = null
+        memoryArtistsCache = null
         apiCacheManager.clearAll()
         userDao.clearUser()
         authPreferences.clear()
@@ -3143,13 +3203,31 @@ class MusicRepository(private val context: Context) {
 
     suspend fun getArtists(
         query: String = "",
-        unclaimedOnly: Boolean = false
+        unclaimedOnly: Boolean = false,
+        forceRefresh: Boolean = false
     ): List<ArtistProfile> = withContext(Dispatchers.IO) {
+        val trimmedQuery = query.trim()
+        if (!forceRefresh && !unclaimedOnly) {
+            val mem = peekCachedArtists()
+            if (mem.isNotEmpty()) {
+                return@withContext if (trimmedQuery.isEmpty()) {
+                    mem
+                } else {
+                    val cleanQ = trimmedQuery.lowercase()
+                    mem.filter { it.name.lowercase().contains(cleanQ) }
+                }
+            }
+        }
+
         try {
-            val resp = api.getArtists(query = query.trim(), unclaimedOnly = unclaimedOnly, limit = 200)
+            val resp = api.getArtists(query = trimmedQuery, unclaimedOnly = unclaimedOnly, limit = 200)
             if (resp.isSuccessful && resp.body() != null) {
                 markServerReachable()
-                return@withContext resp.body()!!.map { mapDtoToArtist(it) }
+                val mapped = resp.body()!!.map { mapDtoToArtist(it) }
+                if (trimmedQuery.isEmpty() && !unclaimedOnly) {
+                    memoryArtistsCache = System.currentTimeMillis() to mapped
+                }
+                return@withContext mapped
             }
         } catch (_: Exception) {
             markServerUnreachable()
@@ -3165,7 +3243,7 @@ class MusicRepository(private val context: Context) {
                 byId.getOrPut(c.id) { mutableListOf() }.add(song)
             }
         }
-        val cleanQ = query.trim().lowercase()
+        val cleanQ = trimmedQuery.lowercase()
         creditMeta.values
             .filter { cleanQ.isEmpty() || it.name.lowercase().contains(cleanQ) }
             .map { c ->

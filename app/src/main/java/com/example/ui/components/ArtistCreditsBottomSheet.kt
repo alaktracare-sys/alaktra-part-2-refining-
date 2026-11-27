@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.R
@@ -64,6 +65,7 @@ fun ArtistCreditsBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = AlaktraCard,
         contentColor = AlaktraTextPrimary,
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         dragHandle = {
             Box(
@@ -126,8 +128,15 @@ fun ArtistCreditsBottomSheet(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.navigationBarsPadding().height(64.dp))
             }
+            BottomBlackGradientScrim(
+                extraHeight = 56.dp,
+                minHeight = 68.dp,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .zIndex(10f)
+            )
         }
     }
 }
